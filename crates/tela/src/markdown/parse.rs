@@ -8,6 +8,7 @@ use super::attributes::Fault;
 use super::builder::{self, Element};
 use super::directive;
 use super::frontmatter::Frontmatter;
+use super::mapping;
 use crate::frontend::Frontend;
 use crate::tree::{Node, NodeId, Origin, Position, Tree};
 
@@ -28,6 +29,7 @@ impl Markdown {
     pub fn new() -> Self {
         let mut parser = MarkdownIt::empty();
         markdown_it::plugins::cmark::add(&mut parser);
+        mapping::add(&mut parser);
         markdown_it::plugins::html::add(&mut parser);
         markdown_it::plugins::extra::tables::add(&mut parser);
         directive::add(&mut parser);
@@ -645,6 +647,75 @@ mod tests {
             "\u{feff}# A\r\n\r\n> - [x](\0)\n",
         ] {
             let _ = parse(text);
+        }
+    }
+
+    fn rows(tree: &Tree) -> Vec<(String, String, u32, u32)> {
+        tree.root()
+            .descendants()
+            .skip(1)
+            .map(|n| {
+                let data = n.node();
+                let (line, end) = data
+                    .origin
+                    .position()
+                    .map_or((0, 0), |p| (p.line(), p.end_line()));
+                (data.kind.clone(), data.text.clone(), line, end)
+            })
+            .collect()
+    }
+
+    fn row(kind: &str, text: &str, line: u32, end: u32) -> (String, String, u32, u32) {
+        (kind.to_owned(), text.to_owned(), line, end)
+    }
+
+    #[test]
+    fn text_after_a_partly_stripped_tab_keeps_its_place() {
+        let tree = parse("- a\n \t}\n-\tb");
+        assert_eq!(
+            rows(&tree),
+            [
+                row("list", "a\n \t}\n-\tb", 1, 3),
+                row("item", "a\n \t}", 1, 2),
+                row("paragraph", "a\n \t}", 1, 2),
+                row("item", "b", 3, 3),
+                row("paragraph", "b", 3, 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn partly_stripped_tabs_match_henia() {
+        for (text, kind, nth, want) in [
+            ("- a\n\t}\n- b\n", "paragraph", 0, "a\n\t}"),
+            ("- a\n   \t}\n- b\n", "paragraph", 0, "a\n   \t}"),
+            ("1. a\n  \t}\n2. b\n", "paragraph", 0, "a\n  \t}"),
+            ("- a\n  - b\n   \tc\n  - d\n", "paragraph", 1, "b\n   \tc"),
+            ("- > a\n  > \tb\n- c\n", "quote", 0, "a\n  > \tb"),
+            ("- a\n\n  > b\n \t> c\n- d\n", "quote", 0, "b\n \t> c"),
+            ("- x\n\n  a\n \tb\n  ===\n- c\n", "heading", 0, "a\nb"),
+            ("- a\n \t[l](u) `c`\n- b\n", "link", 0, "l"),
+            ("- a\n \t`x\n \ty` z\n- b\n", "code", 0, "x\n \ty"),
+            (
+                "- a\n \tb\\\n \tc\n- d\n",
+                "paragraph",
+                0,
+                "a\n \tb\\\n \tc",
+            ),
+            ("- a\n\n \t\tcode\n- b\n", "code", 0, "code"),
+            ("- a\n\n \t\t\tcode\n- b\n", "code", 0, "\tcode"),
+            ("    \tcode\n", "code", 0, "\tcode"),
+            ("- a\n\n \t```\n \t\tx\n \t```\n- b\n", "code", 0, "\tx\n"),
+            (
+                "- a\n\n \t<div>\n \tx\n \t</div>\n- b\n",
+                "html",
+                0,
+                "<div>\n \tx\n \t</div>",
+            ),
+        ] {
+            let tree = parse(text);
+            let node = find(&tree, kind)[nth].node();
+            assert_eq!(node.text, want, "{text:?}");
         }
     }
 }

@@ -83,6 +83,32 @@ fn edge_inputs_are_written_verbatim() {
 }
 
 #[test]
+fn partly_stripped_tabs_are_written_verbatim() {
+    for text in [
+        "- a\n \t}\n-\tb",
+        "- a\n\t}\n- b\n",
+        "- a\n  \t}\n- b\n",
+        "- a\n   \t}\n- b\n",
+        "10. a\n \t}\n11. b\n",
+        "- a\n  - b\n   \tc\n  - d\n",
+        "- a\n \t- b\n \t \t c\n- d\n",
+        "- > a\n  > \tb\n- c\n",
+        "- a\n\n  > b\n \t> c\n- d\n",
+        "- x\n\n  a\n \tb\n  ===\n- c\n",
+        "- a\n \t[l](u) `c`\n- b\n",
+        "- a\n \t`x\n \ty` z\n- b\n",
+        "- a\n \t:x[y]\n- b\n",
+        "- a\n\n \t\tcode\n \t\t  more\n- b\n",
+        "- a\n\n \t```\n \t\tx\n \t```\n- b\n",
+        "- a\n\n \t<div>\n \tx\n \t</div>\n- b\n",
+        "- a\n\n \t:::d\n \tin\n \t:::\n- b\n",
+        "- a\r\n \t}\r\n- b\r\n",
+    ] {
+        assert_eq!(Document::parse("doc.md", text).value.to_string(), text);
+    }
+}
+
+#[test]
 fn problems_name_their_source_position() {
     let parsed = Document::parse("doc.md", "intro\n\n:x[a]{k=1 k=2}\n");
     let problems: Vec<_> = parsed.problems.iter().map(ToString::to_string).collect();

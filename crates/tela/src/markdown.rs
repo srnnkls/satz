@@ -6,6 +6,7 @@ mod builder;
 mod directive;
 mod document;
 mod frontmatter;
+mod mapping;
 mod parse;
 mod render;
 #[cfg(test)]

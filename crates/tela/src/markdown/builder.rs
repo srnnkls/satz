@@ -351,18 +351,11 @@ impl<'a> Builder<'a> {
             e.span((open, end));
         } else if let Some(code) = n.cast::<CodeBlock>() {
             e = Element::new("code").attr("inline", "false");
-            let indent = code.as_str().bytes().take_while(|&c| c == b' ').count();
-            let start = s - indent.min(s - self.line_start(s));
+            let start = self.content_start(s, code.as_str());
             e.span((start, self.after_eol(self.trim_end(s, t))));
-        } else if n.is::<HtmlBlock>() {
+        } else if let Some(html) = n.cast::<HtmlBlock>() {
             e = Element::new("html");
-            let line = self.line_start(s);
-            let start = if self.src[line..s].iter().all(|&c| c == b' ' || c == b'\t') {
-                line
-            } else {
-                s
-            };
-            e.span((start, self.after_eol(t)));
+            e.span((self.content_start(s, html.as_str()), self.after_eol(t)));
         } else if n.is::<ThematicBreak>() {
             e = Element::new("rule");
             e.span((s, self.trim_end(s, t)));
@@ -456,8 +449,12 @@ impl<'a> Builder<'a> {
                 if let (_, _, Some(content)) = self.fence(c, fence) {
                     cover(acc, content);
                 }
-            } else if n.is::<CodeBlock>() || n.is::<HtmlBlock>() {
-                cover(acc, (s, self.after_eol(self.trim_end(s, t))));
+            } else if let Some(code) = n.cast::<CodeBlock>() {
+                let start = self.content_start(s, code.as_str());
+                cover(acc, (start, self.after_eol(self.trim_end(s, t))));
+            } else if let Some(html) = n.cast::<HtmlBlock>() {
+                let start = self.content_start(s, html.as_str());
+                cover(acc, (start, self.after_eol(self.trim_end(s, t))));
             } else if let Some(container) = n.cast::<Container>() {
                 cover(acc, (container.open.0, container.close.map_or(0, |c| c.1)));
                 self.block_extent(c, acc);
@@ -480,6 +477,24 @@ impl<'a> Builder<'a> {
         if let Some((s, t)) = self.run_extent(&tight) {
             cover(acc, (s, self.trim_end(s, t)));
         }
+    }
+
+    /// Where a code or HTML block's text starts: the blanks its content keeps
+    /// before `first`, its first non-blank byte, without the spaces that
+    /// stand in for a partly stripped tab.
+    fn content_start(&self, first: usize, content: &str) -> usize {
+        let blank = content
+            .bytes()
+            .take_while(|&c| c == b' ' || c == b'\t')
+            .count();
+        let kept = &content.as_bytes()[..blank];
+        let pads = kept.iter().take_while(|&&c| c == b' ').count();
+        (0..=pads)
+            .find_map(|pad| {
+                let start = first.checked_sub(blank - pad)?;
+                (self.src.get(start..first) == Some(&kept[pad..])).then_some(start)
+            })
+            .unwrap_or(first)
     }
 
     /// goldmark's fence geometry: the block from its opening line, and the
