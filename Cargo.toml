@@ -9,6 +9,9 @@ license = "MIT"
 repository = "https://github.com/srnnkls/tela"
 authors = ["Sören Nikolaus <soeren@code17.io>"]
 
+[workspace.dependencies]
+thiserror = "2.0.21"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 elided_lifetimes_in_paths = "warn"
