@@ -27,6 +27,13 @@ done
 shasum -a 256 -c "$DIR.sha256"
 '''
 
+[tasks.cli]
+description = "Check tela's CLI contract on the scrut tests"
+run = '''
+cargo build --quiet --package tela-cli
+PATH="$PWD/target/debug:$PATH" scrut test tests/cli
+'''
+
 [tasks.parity]
 description = "Compare tela's CLI with the pinned henia's on the scrut parity tests"
 depends = ["model"]

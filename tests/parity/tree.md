@@ -389,7 +389,7 @@ $ henia query --path tree.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path tree.md '(_) @n' --json
@@ -1775,7 +1775,7 @@ $ henia query --path links.md '(_) @n' --json
 ]
 ```
 
-tela drops the empty paragraph, places the autolink on line 5 with its URL as text, and unescapes the destinations.
+tela drops the empty paragraph, places the autolink on line 5 with its URL as text, and unescapes the destinations. Its links carry `url` without henia's link resolution attributes, and it writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path links.md '(_) @n' --json

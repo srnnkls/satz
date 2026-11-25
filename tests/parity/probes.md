@@ -392,7 +392,7 @@ $ henia query --path a03.md '(_) @n' --json
 ]
 ````
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ````scrut
 $ tela query --path a03.md '(_) @n' --json
@@ -692,7 +692,7 @@ $ henia query --path a05.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a05.md '(_) @n' --json
@@ -791,7 +791,7 @@ $ henia query --path a06.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a06.md '(_) @n' --json
@@ -1277,7 +1277,7 @@ $ henia query --path a09.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a09.md '(_) @n' --json
@@ -3266,7 +3266,7 @@ $ henia query --path a21.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows with the AD-20 fixes; the file node carries `path` only.
+tela prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a21.md '(_) @n' --json
@@ -3864,7 +3864,7 @@ $ henia query --path a24.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a24.md '(_) @n' --json
@@ -4187,7 +4187,7 @@ $ henia query --path a27.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a27.md '(_) @n' --json
@@ -4488,7 +4488,7 @@ $ henia query --path a29.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows with the AD-20 fixes; the file node carries `path` only.
+tela prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
 $ tela query --path a29.md '(_) @n' --json
@@ -5590,7 +5590,7 @@ $ henia query --path a36.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
 $ tela query --path a36.md '(_) @n' --json
@@ -6491,7 +6491,7 @@ $ henia query --path a42.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
 $ tela query --path a42.md '(_) @n' --json
@@ -6885,7 +6885,7 @@ $ henia query --path a46.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
 $ tela query --path a46.md '(_) @n' --json
