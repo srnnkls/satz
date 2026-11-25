@@ -55,7 +55,7 @@ pub fn words(text: &str) -> Vec<String> {
 
 /// Lower-cases each char by its simple case mapping, as Go's `strings.ToLower`
 /// does: `İ` becomes `i` and a final `Σ` becomes `σ`.
-fn lowercase(text: &str) -> String {
+pub(crate) fn lowercase(text: &str) -> String {
     text.chars()
         .map(|c| c.to_lowercase().next().unwrap_or(c))
         .collect()
@@ -88,6 +88,11 @@ impl Shingles {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// The shingles in sorted order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(String::as_str)
     }
 
     fn shared_count(&self, other: &Self) -> usize {

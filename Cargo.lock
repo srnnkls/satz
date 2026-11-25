@@ -841,6 +841,7 @@ version = "0.0.0"
 dependencies = [
  "markdown-it-rs",
  "model2vec-rs",
+ "regex",
  "saphyr-parser",
  "thiserror",
  "unicode-properties",

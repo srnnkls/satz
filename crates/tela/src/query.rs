@@ -1,13 +1,44 @@
 //! Structural queries in tq: the schema, environment, and the query
 //! and row types its reader and matcher exchange.
+//!
+//! `:matches` and `/regexp/` values compile with the [`regex`] crate, not
+//! Go's RE2, which henia's patterns are written for. The syntax is RE2's with
+//! these differences:
+//!
+//! - `\d`, `\w`, `\s` and `\b` are Unicode-aware: `\d` matches `٣` and `\w`
+//!   matches `é`; write `[0-9]` or `(?-u:\w)` for RE2's ASCII classes.
+//! - Inside a class, `&&`, `--` and `~~` are intersection, difference and
+//!   symmetric difference: `[a-z&&[^aeiou]]` is a consonant, where RE2 reads
+//!   the class literally.
+//! - `\<` and `\>` are start- and end-of-word boundaries; RE2 rejects them.
+//! - `\Q…\E` quoting and `\C` are rejected; RE2 accepts them.
+
+mod check;
+mod group;
+mod lex;
+mod matcher;
+mod module;
+mod pattern;
+mod read;
+mod rows;
+mod sort;
+mod view;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use crate::similarity::{Embed, EmbedError};
+pub use module::{Define, Defines, Module, Placeholder, Rule, Sigil, placeholders};
+
+use self::group::Group;
+use self::pattern::{Check, Operand, Pattern, Relate};
+use self::sort::SortKey;
+use crate::similarity::{Embed, EmbedError, EmbeddingError};
 use crate::tree::{NodeId, Tree};
+
+/// The node type of a root that holds files: patterns never match it.
+pub const CORPUS: &str = "corpus";
 
 /// Keys every node type takes.
 const TEXT_KEYS: [&str; 10] = [
@@ -278,6 +309,10 @@ impl Error {
         }
     }
 
+    pub(crate) fn syntax(offset: usize, message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Syntax, offset, message)
+    }
+
     /// The error with a suggested fix.
     #[must_use]
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
@@ -320,27 +355,63 @@ pub enum RunError {
     /// The model failed to embed a text.
     #[error(transparent)]
     Embed(#[from] EmbedError),
+    /// The model returned an embedding with a non-finite component.
+    #[error("the semantic model returned an unusable embedding")]
+    Embedding(#[from] EmbeddingError),
+    /// The query reads a `$param` the environment does not set.
+    #[error("${0} has no value")]
+    MissingParam(String),
+    /// The query compares a `$param` as a number, but its value is text.
+    #[error("${name} is {value:?}, but the query compares it as a number")]
+    TextParam {
+        /// The param.
+        name: String,
+        /// Its text value.
+        value: String,
+    },
+    /// Joining the patterns produced more combinations than a run allows.
+    #[error("the query produces too many combinations; anchor it to a narrower pattern")]
+    TooMany,
 }
 
 /// A query read against a schema.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A query is immutable and shareable: [`Query::run`] keeps document order,
+/// memos and caches in per-run state and never writes to the tree.
+#[derive(Debug, Clone)]
 pub struct Query {
     source: String,
+    members: Vec<Pattern>,
+    absent: Vec<Pattern>,
+    captures: Vec<String>,
+    values: BTreeSet<String>,
+    numbers: BTreeSet<String>,
+    semantic: bool,
+    group: Option<Group>,
+    params: BTreeMap<String, bool>,
+    sorts: Vec<SortKey>,
+    printed: Vec<String>,
+    unit: Option<Unit>,
 }
 
 impl Query {
-    /// Reads `source` against `schema`, ordering rows by `sort` (`?var` or
-    /// `@capture.key`, descending with a leading `-`).
+    /// Reads `source` against `schema`, ordering rows by `sort` (`?var`,
+    /// `@value` or `@capture.key`, descending with a leading `-`).
+    ///
+    /// Regular expressions follow the [`regex`] crate, which differs from
+    /// RE2 as the [module docs](crate::query) list.
     ///
     /// # Errors
-    /// Returns [`Error`] when the source is not a valid query for `schema`.
-    #[expect(
-        clippy::todo,
-        reason = "the reader is ported from henia's pattern package"
-    )]
+    /// Returns [`Error`] when the source is not a valid query for `schema`;
+    /// an invalid `sort` is reported at the offset just past the source.
     pub fn read(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Self, Error> {
-        let _ = (source, schema, sort);
-        todo!()
+        let mut reader = read::Reader::new(source, schema)?;
+        if let Some(sort) = sort {
+            reader.sorts.push(SortKey::parse(sort, source.len())?);
+        }
+        let mut query = reader.query(lex::Kind::Eof)?;
+        source.clone_into(&mut query.source);
+        Ok(query)
     }
 
     /// The source the query was read from.
@@ -349,30 +420,143 @@ impl Query {
         &self.source
     }
 
+    /// The capture names in order of first appearance; a query of one
+    /// pattern without captures has the implicit capture `""`.
+    #[must_use]
+    pub fn captures(&self) -> &[String] {
+        &self.captures
+    }
+
+    /// The variables a listing shows with each row: the group's key
+    /// variables, or else the sort variables.
+    #[must_use]
+    pub fn shown_vars(&self) -> Vec<&str> {
+        match &self.group {
+            Some(group) => group.keys.iter().filter_map(|k| k.input.var()).collect(),
+            None => self.sorts.iter().filter_map(SortKey::var).collect(),
+        }
+    }
+
+    /// The `$params` the query reads, true where it compares the param as a
+    /// number.
+    #[must_use]
+    pub fn params(&self) -> &BTreeMap<String, bool> {
+        &self.params
+    }
+
+    /// Whether a required pattern cannot match in `environment`: a
+    /// similarity threshold it needs is 0 or below.
+    #[must_use]
+    pub fn impossible(&self, environment: &Environment) -> bool {
+        fn walk(pattern: &Pattern, environment: &Environment) -> bool {
+            let disabled = pattern.attrs.iter().any(|attr| match &attr.check {
+                Check::Constrain {
+                    relate: Relate::Similarity(similarity),
+                    ..
+                } => environment.number(&similarity.threshold) <= 0.0,
+                _ => false,
+            });
+            if disabled {
+                return true;
+            }
+            if pattern.alts.iter().any(|alt| !walk(alt, environment)) {
+                return false;
+            }
+            let required_link = pattern
+                .chains
+                .iter()
+                .flat_map(|chain| &chain.links)
+                .any(|link| !link.pattern.optional() && walk(&link.pattern, environment));
+            required_link || !pattern.alts.is_empty()
+        }
+        self.members
+            .iter()
+            .any(|p| !p.optional() && walk(p, environment))
+    }
+
     /// Matches the query over a shared tree; it never writes to nodes.
+    ///
+    /// Data tables join the tree as `row` nodes after its last node, under a
+    /// [`CORPUS`] root; nodes of that type never match.
     ///
     /// # Errors
     /// Returns [`RunError`] when a similarity pattern has no model or the
-    /// model fails.
-    #[expect(
-        clippy::todo,
-        reason = "the matcher is ported from henia's pattern package"
-    )]
+    /// model fails, a `$param` is unset or text where a number is due, or the
+    /// patterns join into too many combinations.
     pub fn run(&self, tree: &Tree, environment: &Environment) -> Result<Vec<Row>, RunError> {
-        let _ = (tree, environment);
-        todo!()
+        if self.semantic && environment.embed.is_none() {
+            return Err(RunError::NoModel);
+        }
+        for (name, &numeric) in &self.params {
+            match environment.params.get(name) {
+                None => return Err(RunError::MissingParam(name.clone())),
+                Some(Value::Text(value)) if numeric => {
+                    return Err(RunError::TextParam {
+                        name: name.clone(),
+                        value: value.clone(),
+                    });
+                }
+                Some(_) => {}
+            }
+        }
+        let data = view::data_tree(&environment.data);
+        let view = view::View::new(tree, data.as_ref());
+        let mut matcher = matcher::Matcher::new(self, environment, view);
+        let bindings = match (self.members.as_slice(), self.absent.is_empty()) {
+            ([member], true) => matcher.everywhere(member, self.captures[0].is_empty()),
+            _ => matcher.join(),
+        }?;
+        if let Some(failure) = matcher.failure.take() {
+            return Err(failure);
+        }
+        let rows = match &self.group {
+            Some(group) => matcher.group_rows(group, &bindings),
+            None => matcher.rows(bindings),
+        };
+        Ok(matcher
+            .sort(rows)
+            .into_iter()
+            .map(|row| matcher.publish(row))
+            .collect())
     }
 }
 
-/// What a capture holds in one row.
+impl Environment {
+    /// The number `operand` stands for; a param that is unset or text is 0.
+    fn number(&self, operand: &Operand) -> f64 {
+        match operand {
+            Operand::Number(n) => *n,
+            Operand::Param(name) => match self.params.get(name) {
+                Some(Value::Number(n)) => *n,
+                _ => 0.0,
+            },
+        }
+    }
+}
+
+/// A node a capture holds: a node of the tree or a data table row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Hit {
+    /// A node of the queried tree.
+    Node(NodeId),
+    /// A row of an environment data table, by its attributes: `table`,
+    /// `value`, and `key` for a keyed table or `index` for a list.
+    Row(BTreeMap<String, String>),
+}
+
+/// What a capture holds in one row; captures that bound nothing are absent
+/// from the row.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Capture {
-    /// One node.
-    Node(NodeId),
-    /// The nodes of a quantified or grouped pattern.
-    Nodes(Vec<NodeId>),
-    /// A value, a score or an aggregate.
+    /// The nodes of one match: one, or several under `*` or `+`.
+    Nodes(Vec<Hit>),
+    /// The distinct nodes a group collected from its matches, in document
+    /// order.
+    Collected(Vec<Hit>),
+    /// A value of one match, a score, or an aggregate.
     Value(Value),
+    /// The distinct values a group collected from its matches.
+    Values(Vec<Value>),
 }
 
 /// One match: its captures and variable bindings.
@@ -380,78 +564,21 @@ pub enum Capture {
 pub struct Row {
     /// Captures by name, without the `@`.
     pub captures: BTreeMap<String, Capture>,
-    /// Variable bindings by name, without the `?`.
+    /// Variable bindings by name, without the `?`; a group row binds only
+    /// its key variables.
     pub vars: BTreeMap<String, String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn skill_spec() -> SchemaSpec {
-        SchemaSpec {
-            types: vec![TypeSpec {
-                name: "skill".to_owned(),
-                keys: vec!["id".to_owned(), "package".to_owned()],
-            }],
-            keys: BTreeMap::from([("file".to_owned(), BTreeSet::from(["file".to_owned()]))]),
-            unit: Some(Unit {
-                kind: "skill".to_owned(),
-                id_key: "id".to_owned(),
-                qualifier_key: Some("package".to_owned()),
-            }),
+impl Row {
+    /// The value a capture holds, if it holds one value.
+    #[must_use]
+    pub fn value(&self, name: &str) -> Option<&Value> {
+        match self.captures.get(name)? {
+            Capture::Value(value) => Some(value),
+            _ => None,
         }
     }
-
-    #[test]
-    fn core_schema_knows_no_unit_and_no_skill() {
-        let core = Schema::core();
-        assert!(core.unit().is_none());
-        assert!(!core.has_type("skill"));
-        assert!(core.has_key("heading", "level"));
-        assert!(core.has_key("paragraph", "dynamic"));
-        assert!(!core.has_key("link", "exists"));
-        assert!(core.has_key("directive", "anything"));
-    }
-
-    #[test]
-    fn a_caller_registers_the_unit_and_its_keys() {
-        let schema = Schema::new(skill_spec()).unwrap();
-        assert!(schema.has_key("skill", "package"));
-        assert!(schema.has_key("file", "file"));
-        assert_eq!(schema.unit().map(|u| u.kind.as_str()), Some("skill"));
-    }
-
-    #[test]
-    fn registering_a_core_type_again_fails() {
-        let spec = SchemaSpec {
-            types: vec![TypeSpec {
-                name: "heading".to_owned(),
-                keys: vec![],
-            }],
-            ..SchemaSpec::default()
-        };
-        assert_eq!(
-            Schema::new(spec),
-            Err(SchemaError::DuplicateType("heading".to_owned()))
-        );
-    }
-
-    #[test]
-    fn keys_and_unit_must_name_known_types() {
-        let mut spec = skill_spec();
-        spec.types.clear();
-        spec.keys.clear();
-        assert_eq!(
-            Schema::new(spec),
-            Err(SchemaError::UnknownType("skill".to_owned()))
-        );
-    }
-
-    #[test]
-    fn values_print_like_henia() {
-        assert_eq!(Value::Number(3.0).to_string(), "3");
-        assert_eq!(Value::Number(0.25).to_string(), "0.25");
-        assert_eq!(Value::Text("x".to_owned()).to_string(), "x");
-    }
 }
+
+#[cfg(test)]
+mod tests;
