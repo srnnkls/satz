@@ -1,9 +1,36 @@
 [tools]
 cargo-deny = "0.22.0"
 "github:facebookincubator/scrut" = "0.4.3"
+"github:srnnkls/henia" = "0.1.0-alpha.36"
 
 [env]
 CARGO_BUILD_WARNINGS = "deny"
 
 [tasks.loqui]
 file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=5298b394357d9897a5db465314472a933f0d5d07"
+
+[tasks.model]
+description = "Fetch the pinned Model2Vec model for the parity tests"
+env = { REPO = "minishlab/potion-base-2M", REV = "389b9f64be5aa4ae7a6bc6fe95ef20ce485ae5da" }
+run = '''
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tela/models/potion-base-2M-389b9f6"
+mkdir -p "$DIR"
+cat > "$DIR.sha256" <<SUMS
+b2a89173391ca774c2d7323090a993a9a1553faa5b40eb37bb7cec6685fbea47  $DIR/config.json
+f95ffde02ad06f63ae38eb9d400038cd5ccaf8411ec3cb650c6025113f96cbb8  $DIR/model.safetensors
+e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50  $DIR/tokenizer.json
+SUMS
+shasum -a 256 --status -c "$DIR.sha256" 2>/dev/null && exit 0
+for f in config.json model.safetensors tokenizer.json; do
+  curl -sSfL -o "$DIR/$f" "https://huggingface.co/$REPO/resolve/$REV/$f"
+done
+shasum -a 256 -c "$DIR.sha256"
+'''
+
+[tasks.parity]
+description = "Compare tela's CLI with the pinned henia's on the scrut parity tests"
+depends = ["model"]
+run = '''
+cargo build --quiet --package tela-cli
+PATH="$PWD/target/debug:$PATH" PARITY_MODEL="${XDG_CACHE_HOME:-$HOME/.cache}/tela/models/potion-base-2M-389b9f6" scrut test tests/parity
+'''
