@@ -19,5 +19,8 @@ saphyr-parser.workspace = true
 thiserror.workspace = true
 unicode-properties.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

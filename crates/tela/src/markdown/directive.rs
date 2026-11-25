@@ -16,6 +16,13 @@ use super::attributes::{Attrs, Fault, name_length, skip_blanks, tokenize};
 /// A byte range of the parsed text.
 pub(super) type Span = (usize, usize);
 
+/// The span markdown-it maps node `id` to, clamped to the parsed text.
+pub(super) fn source_span(doc: &Document, id: NodeId) -> Option<Span> {
+    let (start, end) = doc.node(id).srcmap()?.get_byte_offsets();
+    let end = end.min(doc.source().len());
+    Some((start.min(end), end))
+}
+
 /// Block-level faults at offsets of the parsed text.
 #[derive(Debug, Default)]
 struct BlockFaults(Vec<Fault>);
@@ -105,7 +112,7 @@ pub(super) fn delimiters(doc: &Document, id: NodeId) -> Option<Delimiters> {
         });
     }
     let directive = node.cast::<InlineDirective>()?;
-    let (start, end) = node.srcmap()?.get_byte_offsets();
+    let (start, end) = source_span(doc, id)?;
     Some(Delimiters {
         fence: 0,
         open: (start, start + directive.label.0),
@@ -160,7 +167,7 @@ pub(super) fn faults(doc: &Document) -> Vec<Fault> {
 fn level_faults(doc: &Document, id: NodeId, out: &mut Vec<Fault>, labels: &mut Vec<NodeId>) {
     for &child in doc.children(id) {
         let node = doc.node(child);
-        let base = node.srcmap().map_or(0, |s| s.get_byte_offsets().0);
+        let base = source_span(doc, child).map_or(0, |span| span.0);
         if let Some(failure) = node.cast::<InlineFailure>() {
             out.extend(failure.faults.iter().cloned().map(|f| f.shifted(base)));
         } else if let Some(directive) = node.cast::<InlineDirective>() {
@@ -461,7 +468,7 @@ fn literal_open(state: &BlockState<'_>, node: NodeId, stop: usize) -> bool {
             return false;
         };
         let n = state.document.node(last);
-        let span = n.srcmap().map(|s| s.get_byte_offsets());
+        let span = source_span(state.document, last);
         if let Some(container) = n.cast::<Container>() {
             if container.close.is_some() {
                 return false;
@@ -472,8 +479,9 @@ fn literal_open(state: &BlockState<'_>, node: NodeId, stop: usize) -> bool {
         } else if let Some(fence) = n.cast::<CodeFence>() {
             return span.is_some_and(|span| span.1 == before && fence_open(state.src, span, fence));
         } else if n.is::<HtmlBlock>() {
-            return span
-                .is_some_and(|span| span.1 == before && html_open(&state.src[span.0..span.1]));
+            return span.is_some_and(|span| {
+                span.1 == before && state.src.get(span.0..span.1).is_some_and(html_open)
+            });
         } else if !(n.is::<Blockquote>()
             || n.is::<BulletList>()
             || n.is::<OrderedList>()
@@ -487,11 +495,17 @@ fn literal_open(state: &BlockState<'_>, node: NodeId, stop: usize) -> bool {
 
 /// Whether a fence ending at `span` lacks its closing line.
 fn fence_open(src: &str, (start, end): Span, fence: &CodeFence) -> bool {
-    let last = src[..end].rfind('\n').map_or(0, |p| p + 1).max(start);
+    let Some(head) = src.get(..end) else {
+        return true;
+    };
+    let last = head.rfind('\n').map_or(0, |p| p + 1).max(start);
     if last == start {
         return true;
     }
-    let line = src[last..end].trim_start_matches([' ', '>']).trim_start();
+    let Some(line) = head.get(last..) else {
+        return true;
+    };
+    let line = line.trim_start_matches([' ', '>']).trim_start();
     let marks = line.chars().take_while(|&c| c == fence.marker).count();
     !(marks >= fence.marker_len && line[marks..].trim().is_empty())
 }

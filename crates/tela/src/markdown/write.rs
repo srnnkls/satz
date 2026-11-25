@@ -436,7 +436,8 @@ pub(super) fn container(item: &Item) -> bool {
 }
 
 /// The canonical fence of a container: one colon longer than the longest
-/// fence it contains, and at least three.
+/// fence it contains, or line of colons that would close it, and at least
+/// three.
 fn fence_length(item: &Item) -> usize {
     fn inner(items: &[Item]) -> usize {
         items
@@ -444,14 +445,26 @@ fn fence_length(item: &Item) -> usize {
             .map(|item| {
                 if container(item) {
                     fence_length(item)
+                } else if matches!(item.kind.as_str(), "code" | "html") {
+                    0
                 } else {
-                    inner(&item.children)
+                    inner(&item.children).max(colon_lines(&item.text))
                 }
             })
             .max()
             .unwrap_or(0)
     }
     (inner(&item.children) + 1).max(3)
+}
+
+/// The length of the longest line of `text` that is only colons.
+fn colon_lines(text: &str) -> usize {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| line.bytes().all(|b| b == b':'))
+        .map(str::len)
+        .max()
+        .unwrap_or(0)
 }
 
 fn marker(list: &BTreeMap<String, String>, i: usize) -> String {

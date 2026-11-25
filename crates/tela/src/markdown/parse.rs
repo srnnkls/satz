@@ -80,12 +80,16 @@ impl Frontend for Markdown {
             append_frontmatter(&mut tree, root, &file, text, head);
         }
         let doc = self.parser.parse(body);
-        let source = doc.source();
+        let nuls = Nuls::new(body);
         let faults = directive::faults(&doc);
         if !faults.is_empty() {
-            let _ = tree.append(root, problem(&file, source, &faults, shift));
+            let _ = tree.append(root, problem(&file, body, &faults, shift, &nuls));
         }
-        let place = Place { file: &file, shift };
+        let place = Place {
+            file: &file,
+            shift,
+            nuls,
+        };
         for element in builder::build(&doc, true).children {
             place.graft(&mut tree, root, element);
         }
@@ -169,11 +173,11 @@ fn append_frontmatter(
 
 /// henia's markup problem: every fault located in the body, one per line,
 /// at the first fault's position.
-fn problem(file: &Arc<str>, body: &str, faults: &[Fault], shift: u32) -> Node {
+fn problem(file: &Arc<str>, body: &str, faults: &[Fault], shift: u32, nuls: &Nuls) -> Node {
     let located: Vec<(usize, u32, u32)> = faults
         .iter()
         .map(|fault| {
-            let offset = fault.offset.min(body.len());
+            let offset = nuls.body(fault.offset).min(body.len());
             let head = &body[..offset];
             let line = head.matches('\n').count() + 1;
             let column = offset - head.rfind('\n').map_or(0, |p| p + 1) + 1;
@@ -201,19 +205,64 @@ fn problem(file: &Arc<str>, body: &str, faults: &[Fault], shift: u32) -> Node {
     node
 }
 
-/// Where elements land: their file and the lines frontmatter shifts them by.
+/// Where elements land: their file, the lines frontmatter shifts them by,
+/// and the body's NULs.
 struct Place<'a> {
     file: &'a Arc<str>,
     shift: u32,
+    nuls: Nuls,
+}
+
+/// The body's NULs, which the parser reads as the three bytes of U+FFFD:
+/// their offsets in the parsed text, and the body's line starts when there
+/// are any.
+struct Nuls {
+    parsed: Vec<usize>,
+    lines: Vec<usize>,
+}
+
+impl Nuls {
+    fn new(body: &str) -> Self {
+        let parsed: Vec<usize> = body
+            .bytes()
+            .enumerate()
+            .filter(|&(_, b)| b == 0)
+            .enumerate()
+            .map(|(before, (at, _))| at + 2 * before)
+            .collect();
+        let lines = if parsed.is_empty() {
+            Vec::new()
+        } else {
+            std::iter::once(0)
+                .chain(body.match_indices('\n').map(|(at, _)| at + 1))
+                .collect()
+        };
+        Self { parsed, lines }
+    }
+
+    /// The body offset of offset `at` of the parsed text.
+    fn body(&self, at: usize) -> usize {
+        at.saturating_sub(2 * self.parsed.partition_point(|&nul| nul < at))
+    }
+
+    /// The body column of the parsed text's `column` on 1-based `line`.
+    fn column(&self, line: usize, column: usize) -> usize {
+        let Some(&start) = line.checked_sub(1).and_then(|i| self.lines.get(i)) else {
+            return column;
+        };
+        let parsed_start = start + 2 * self.parsed.partition_point(|&nul| self.body(nul) < start);
+        self.body(parsed_start + column.saturating_sub(1)) - start + 1
+    }
 }
 
 impl Place<'_> {
     fn graft(&self, tree: &mut Tree, parent: NodeId, element: Element) {
-        let start = element.start.unwrap_or_default();
+        let parsed = element.start.unwrap_or_default();
+        let start = self.nuls.body(parsed);
         let position = Position::new(
-            start..element.end.max(start),
+            start..self.nuls.body(element.end).max(start),
             count(element.line)..=count(element.end_line.max(element.line)),
-            count(element.column),
+            count(self.nuls.column(element.line, element.column)),
         )
         .ok();
         let mut node = Node::new(
@@ -647,6 +696,29 @@ mod tests {
             "\u{feff}# A\r\n\r\n> - [x](\0)\n",
         ] {
             let _ = parse(text);
+        }
+    }
+
+    #[test]
+    fn positions_index_the_body_around_nuls() {
+        let text = "\0\n***\n\0\0 `c`\n";
+        let tree = parse(text);
+        assert_eq!(span_text(text, find(&tree, "rule")[0]), "***");
+        let code = find(&tree, "code")[0];
+        assert_eq!(span_text(text, code), "`c`");
+        assert_eq!(code.node().position.as_ref().map(Position::column), Some(4));
+    }
+
+    #[test]
+    fn heading_columns_point_at_the_title_with_and_without_nuls() {
+        for (text, column) in [("# Title\n", 3), ("\0\n## \0Title\n", 4)] {
+            let tree = parse(text);
+            let heading = find(&tree, "heading")[0];
+            assert_eq!(
+                heading.node().position.as_ref().map(Position::column),
+                Some(column),
+                "{text:?}"
+            );
         }
     }
 

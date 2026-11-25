@@ -8,6 +8,8 @@ mod document;
 mod frontmatter;
 mod mapping;
 mod parse;
+#[cfg(test)]
+mod properties;
 mod render;
 #[cfg(test)]
 mod testing;
@@ -192,7 +194,7 @@ impl fmt::Display for RenderFormat {
 /// form.
 ///
 /// Container fences take canonical lengths, each one colon longer than the
-/// longest fence it holds. An item that moved is re-indented to its new
+/// longest fence it holds, and NUL reads as U+FFFD. An item that moved is re-indented to its new
 /// place; an item from another document writes its own source.
 #[derive(Clone)]
 #[non_exhaustive]

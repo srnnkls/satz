@@ -221,11 +221,12 @@ pub(super) fn parse(file: &str, text: &str) -> Parsed<Document> {
         .into_iter()
         .map(|fault| problem(&source, &fault))
         .collect();
-    let children: Vec<Item> = builder::build(&markdown, false)
-        .children
-        .into_iter()
-        .map(|element| convert(&source, element, 0))
-        .collect();
+    let children = convert_all(
+        &source,
+        builder::build(&markdown, false).children,
+        0,
+        usize::MAX,
+    );
     let mut root = Snapshot::new(Arc::clone(&source), 0..source.text.len(), BTreeMap::new());
     root.adopt(&children);
     Parsed {
@@ -250,14 +251,36 @@ fn problem(source: &Source, fault: &Fault) -> Problem {
     }
 }
 
-fn convert(source: &Arc<Source>, mut element: Element, indent: usize) -> Item {
+/// Converts sibling `elements`, each ending by the next one's start, the
+/// last by `limit`: goldmark lets a block run into the source after it,
+/// which its items must not write twice.
+fn convert_all(
+    source: &Arc<Source>,
+    elements: Vec<Element>,
+    indent: usize,
+    mut limit: usize,
+) -> Vec<Item> {
+    let mut items: Vec<Item> = elements
+        .into_iter()
+        .rev()
+        .map(|element| {
+            let item = convert(source, element, indent, limit);
+            if let Some(snapshot) = &item.snapshot {
+                limit = limit.min(snapshot.start);
+            }
+            item
+        })
+        .collect();
+    items.reverse();
+    items
+}
+
+fn convert(source: &Arc<Source>, mut element: Element, indent: usize, limit: usize) -> Item {
     let text = source.bytes();
     let first = element.start.unwrap_or_default();
-    let inner = content(text, element.kind, first, indent);
-    let children: Vec<Item> = std::mem::take(&mut element.children)
-        .into_iter()
-        .map(|child| convert(source, child, inner))
-        .collect();
+    let marker = element.source.map_or(first, |span| span.0);
+    let inner = content(text, element.kind, marker, indent);
+    let children = convert_all(source, std::mem::take(&mut element.children), inner, limit);
     let mut end = element.end.max(first);
     if let Some(delimiters) = &element.delimiters {
         end = end.max(delimiters.open.1);
@@ -266,6 +289,7 @@ fn convert(source: &Arc<Source>, mut element: Element, indent: usize) -> Item {
         end = end.max(last.end);
     }
     let (start, end, lo) = extent(text, &element, &children, first..end, indent);
+    let end = end.min(limit);
     let origin = locate(source, start..end.max(start));
     let span = origin.position().map_or(start..start, Position::span);
     let mut snapshot = Snapshot::new(Arc::clone(source), span.clone(), element.attrs.clone());
@@ -341,18 +365,30 @@ fn extent(
                 start = start.min(first.start);
             }
             lo = start;
-            start = owner(text, start, element.kind);
-        }
-        "heading" | "section" => {
-            start = after_indent(text, start, indent);
-            if element.kind == "heading" {
-                let rest = text.get(start..).unwrap_or_default();
-                end = if atx(rest) {
-                    end.max(start + line_length(rest))
-                } else {
-                    underline(text, end)
-                };
+            if let Some((marker, last)) = element.source {
+                start = marker;
+                end = end.max(last);
             }
+        }
+        "section" => {
+            start = children
+                .first()
+                .and_then(|heading| heading.snapshot.as_ref())
+                .map_or_else(
+                    || after_indent(text, start, indent),
+                    |heading| heading.start,
+                );
+        }
+        "heading" => {
+            start = element
+                .source
+                .map_or_else(|| after_indent(text, start, indent), |span| span.0);
+            let rest = text.get(start..).unwrap_or_default();
+            end = if atx(rest) {
+                end.max(start + line_length(rest))
+            } else {
+                underline(text, end)
+            };
         }
         "table" => {
             start = start.min(after_indent(text, line_start(text, start), indent));
@@ -361,6 +397,9 @@ fn extent(
         "code" => {
             if element.attrs.contains_key("lang") {
                 start = after_indent(text, start, indent);
+                if let Some((fence, _)) = element.source {
+                    start = start.min(fence);
+                }
             } else if element
                 .attrs
                 .get("inline")
@@ -453,72 +492,70 @@ pub(super) fn line_start(text: &[u8], at: usize) -> usize {
         .map_or(0, |p| p + 1)
 }
 
-/// The opening marker of the list item or block quote whose content starts
-/// at `start`.
-fn owner(text: &[u8], start: usize, kind: &str) -> usize {
-    let mut i = start;
-    while i > 0
-        && (matches!(text[i - 1], b' ' | b'\t')
-            || kind == "item" && matches!(text[i - 1], b'\n' | b'\r'))
-    {
-        i -= 1;
-    }
-    if i == 0 {
-        return start;
-    }
-    match text[i - 1] {
-        b'>' if kind == "quote" => i - 1,
-        b'-' | b'+' | b'*' if kind == "item" => i - 1,
-        b'.' | b')' if kind == "item" => {
-            let digits = text[..i - 1]
-                .iter()
-                .rev()
-                .take_while(|b| b.is_ascii_digit())
-                .count();
-            if digits > 0 { i - 1 - digits } else { start }
-        }
-        _ => start,
-    }
-}
-
+/// The offset `indent` columns into the line of `start`, or `start` if later.
 fn after_indent(text: &[u8], start: usize, indent: usize) -> usize {
     let line = line_start(text, start);
     let mut i = line;
-    while i < text.len() && i - line < indent && text[i] != b'\n' {
+    let mut column = 0;
+    while column < indent
+        && let Some(&b) = text.get(i)
+        && b != b'\n'
+    {
+        column = advance(column, b);
         i += 1;
     }
     start.max(i)
 }
 
-/// The content column of a list item or block quote starting at `start`.
-fn content(text: &[u8], kind: &str, start: usize, indent: usize) -> usize {
+/// The column after `b` at `column`, tabs stopping at multiples of four.
+fn advance(column: usize, b: u8) -> usize {
+    if b == b'\t' {
+        column + 4 - column % 4
+    } else {
+        column + 1
+    }
+}
+
+/// The content column of a list item or block quote marked at `marker`.
+fn content(text: &[u8], kind: &str, marker: usize, indent: usize) -> usize {
     if kind != "quote" && kind != "item" {
         return indent;
     }
-    let line = line_start(text, start);
-    let mut i = after_indent(text, line, indent);
-    while matches!(text.get(i), Some(b' ' | b'\t')) {
+    let mut i = marker.min(text.len());
+    let line = line_start(text, i);
+    let mut column = text[line..i]
+        .iter()
+        .fold(0, |column, &b| advance(column, b));
+    while let Some(&b @ (b' ' | b'\t')) = text.get(i) {
+        column = advance(column, b);
         i += 1;
     }
     if kind == "quote" {
         if text.get(i) == Some(&b'>') {
-            i += 1;
-            if text.get(i) == Some(&b' ') {
-                i += 1;
+            column += 1;
+            if matches!(text.get(i + 1), Some(b' ' | b'\t')) {
+                column += 1;
             }
         }
-        return i - line;
+        return column;
     }
     let marker = marker_length(text, i);
     if marker == 0 {
         return indent;
     }
     i += marker;
-    let mut spaces = text[i..].iter().take_while(|&&b| b == b' ').count();
-    if spaces == 0 || spaces > 4 || matches!(text.get(i + spaces), None | Some(b'\n')) {
-        spaces = 1;
+    column += marker;
+    let mut blank = column;
+    while let Some(&b @ (b' ' | b'\t')) = text.get(i) {
+        blank = advance(blank, b);
+        i += 1;
     }
-    i + spaces - line
+    let width = blank - column;
+    if width == 0 || width > 4 || matches!(text.get(i), None | Some(b'\n')) {
+        column + 1
+    } else {
+        blank
+    }
 }
 
 fn marker_length(text: &[u8], at: usize) -> usize {

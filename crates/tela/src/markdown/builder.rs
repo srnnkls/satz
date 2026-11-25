@@ -21,7 +21,7 @@ use markdown_it::plugins::extra::tables::{Table, TableBody, TableCell, TableHead
 use markdown_it::plugins::html::html_block::HtmlBlock;
 use markdown_it::plugins::html::html_inline::HtmlInline;
 
-use super::directive::{self, Container, Delimiters, InlineDirective, Leaf, Span};
+use super::directive::{self, Container, Delimiters, InlineDirective, Leaf, Span, source_span};
 
 /// One node of the tree under construction, positioned in the parsed text.
 #[derive(Debug, Default)]
@@ -39,6 +39,8 @@ pub(super) struct Element {
     pub(super) delimiters: Option<Delimiters>,
     /// A link's or image's whole source, from its opening bracket.
     pub(super) link: Option<Span>,
+    /// A block's span as markdown-it reads it, from its first marker.
+    pub(super) source: Option<Span>,
 }
 
 impl Element {
@@ -121,10 +123,6 @@ fn heading_level(doc: &Document, id: NodeId) -> Option<u8> {
     n.cast::<ATXHeading>()
         .map(|h| h.level)
         .or_else(|| n.cast::<SetextHeader>().map(|h| h.level))
-}
-
-fn source_span(doc: &Document, id: NodeId) -> Option<Span> {
-    doc.node(id).srcmap().map(|s| s.get_byte_offsets())
 }
 
 fn is_space(c: u8) -> bool {
@@ -324,7 +322,8 @@ impl<'a> Builder<'a> {
             Item::Block(id) => id,
         };
         let n = self.doc.node(id);
-        let (s, t) = source_span(self.doc, id).unwrap_or_default();
+        let span = source_span(self.doc, id);
+        let (s, t) = span.unwrap_or_default();
         let mut e;
         if let Some(level) = heading_level(self.doc, id) {
             e = Element::new("heading").attr("level", level.to_string());
@@ -392,6 +391,7 @@ impl<'a> Builder<'a> {
             self.child_inlines(&mut e, id);
         }
         e.delimiters = directive::delimiters(self.doc, id);
+        e.source = span;
         Some(e)
     }
 
