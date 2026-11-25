@@ -1,21 +1,77 @@
 //! The lint engine: rule modules from ordered layers, compiled into a plan
 //! that runs over one corpus and returns tela's own findings.
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::SystemTime;
 
 use crate::query::{self, Environment, Table, Value};
-use crate::tree::Tree;
+use crate::tree::{Origin, Tree};
 
-/// How a finding counts: errors fail lint, warnings only under `--strict`.
+/// A rule id: non-empty, without whitespace, such as `duplicate-heading`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RuleId(String);
+
+/// A rule id that is empty or contains whitespace.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid rule id {0:?}")]
+pub struct InvalidRuleId(pub String);
+
+impl RuleId {
+    /// Validates `id`.
+    ///
+    /// # Errors
+    /// Returns [`InvalidRuleId`] when `id` is empty or contains whitespace.
+    pub fn new(id: impl Into<String>) -> Result<Self, InvalidRuleId> {
+        let id = id.into();
+        if id.is_empty() || id.contains(char::is_whitespace) {
+            return Err(InvalidRuleId(id));
+        }
+        Ok(Self(id))
+    }
+
+    /// The id as text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for RuleId {
+    type Err = InvalidRuleId;
+
+    fn from_str(id: &str) -> Result<Self, Self::Err> {
+        Self::new(id)
+    }
+}
+
+impl fmt::Display for RuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for RuleId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Borrow<str> for RuleId {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+/// How a finding counts: errors always fail lint, warnings only when the
+/// caller is strict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
-    /// Fails lint.
+    /// Always fails.
     Error,
-    /// Fails lint only when strict.
+    /// Fails only when strict.
     Warning,
 }
 
@@ -45,85 +101,77 @@ impl fmt::Display for Severity {
     }
 }
 
-/// A source position a finding points at.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Location {
-    /// The file, as the corpus names it.
-    pub file: String,
-    /// The 1-based line.
-    pub line: u32,
-    /// The 1-based column.
-    pub column: u32,
-}
-
-/// How a similarity score was computed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Method {
-    /// Word-shingle Jaccard.
-    Jaccard,
-    /// Word-shingle containment.
-    Containment,
-    /// Cosine under the semantic model.
-    Cosine,
-}
-
-/// The similarity behind a finding.
+/// The similarity behind a finding, with what its method reports.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Score {
-    /// The score.
-    pub value: f64,
-    /// How it was computed.
-    pub method: Method,
-    /// Shared phrases, for shingle methods.
-    pub shared: Vec<String>,
-    /// The model, for cosine.
-    pub model: Option<String>,
+pub enum Score {
+    /// Word-shingle Jaccard, with the shared phrases.
+    Jaccard {
+        /// The score.
+        value: f64,
+        /// Shared phrases.
+        shared: Vec<String>,
+    },
+    /// Word-shingle containment, with the shared phrases.
+    Containment {
+        /// The score.
+        value: f64,
+        /// Shared phrases.
+        shared: Vec<String>,
+    },
+    /// Cosine under a semantic model.
+    Cosine {
+        /// The score.
+        value: f64,
+        /// The model.
+        model: String,
+    },
+}
+
+impl Score {
+    /// The score, whatever the method.
+    #[must_use]
+    pub fn value(&self) -> f64 {
+        match self {
+            Self::Jaccard { value, .. }
+            | Self::Containment { value, .. }
+            | Self::Cosine { value, .. } => *value,
+        }
+    }
 }
 
 /// One finding.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
-    rule: String,
-    location: Location,
+    rule: RuleId,
+    origin: Origin,
     severity: Severity,
     message: String,
-    related: Vec<Location>,
+    related: Vec<Origin>,
     score: Option<Score>,
 }
 
-/// A diagnostic without a rule id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("diagnostic names no rule")]
-pub struct UnnamedRule;
-
 impl Diagnostic {
-    /// A finding of `rule` at `location`.
-    ///
-    /// # Errors
-    /// Returns [`UnnamedRule`] when `rule` is empty.
+    /// A finding of `rule` at `origin`.
+    #[must_use]
     pub fn new(
-        rule: impl Into<String>,
-        location: Location,
+        rule: RuleId,
+        origin: Origin,
         severity: Severity,
         message: impl Into<String>,
-    ) -> Result<Self, UnnamedRule> {
-        let rule = rule.into();
-        if rule.is_empty() {
-            return Err(UnnamedRule);
-        }
-        Ok(Self {
+    ) -> Self {
+        Self {
             rule,
-            location,
+            origin,
             severity,
             message: message.into(),
             related: Vec::new(),
             score: None,
-        })
+        }
     }
 
-    /// The finding with `related` locations.
+    /// The finding with `related` origins.
     #[must_use]
-    pub fn with_related(mut self, related: Vec<Location>) -> Self {
+    pub fn with_related(mut self, related: Vec<Origin>) -> Self {
         self.related = related;
         self
     }
@@ -135,16 +183,16 @@ impl Diagnostic {
         self
     }
 
-    /// The rule id.
+    /// The rule.
     #[must_use]
-    pub fn rule(&self) -> &str {
+    pub fn rule(&self) -> &RuleId {
         &self.rule
     }
 
     /// Where the finding points.
     #[must_use]
-    pub fn location(&self) -> &Location {
-        &self.location
+    pub fn origin(&self) -> &Origin {
+        &self.origin
     }
 
     /// Its severity.
@@ -159,9 +207,9 @@ impl Diagnostic {
         &self.message
     }
 
-    /// Related locations, such as the original of a copy.
+    /// Related origins, such as the original of a copy.
     #[must_use]
-    pub fn related(&self) -> &[Location] {
+    pub fn related(&self) -> &[Origin] {
         &self.related
     }
 
@@ -194,8 +242,8 @@ pub enum LayerError {
     /// Two files share a path.
     #[error("module file {0:?} appears twice")]
     DuplicateFile(String),
-    /// A directory could not be read.
-    #[error("read module directory {path:?}: {source}")]
+    /// A directory or file could not be read.
+    #[error("read {path:?}")]
     Read {
         /// The path that failed.
         path: PathBuf,
@@ -273,7 +321,7 @@ fn collect_markdown(
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineRule {
     /// The rule id.
-    pub id: String,
+    pub id: RuleId,
     /// The tq query.
     pub query: String,
     /// The message template.
@@ -284,9 +332,9 @@ pub struct InlineRule {
     pub at: Option<String>,
     /// The capture of related locations.
     pub related: Option<String>,
-    /// Parameter values.
+    /// Parameter values, over the environment's.
     pub params: BTreeMap<String, Value>,
-    /// Data tables.
+    /// Data tables, over the environment's.
     pub data: BTreeMap<String, Table>,
 }
 
@@ -301,24 +349,22 @@ pub struct RuleConfig {
     pub data: BTreeMap<String, Table>,
 }
 
-/// The semantic model options.
+/// The semantic model options of the `[lint.semantic]` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Semantic {
     /// Whether semantic rules run.
     pub enabled: bool,
-    /// The `Model2Vec` directory.
+    /// The `Model2Vec` directory the caller loads into the environment.
     pub model_path: Option<PathBuf>,
 }
 
-/// Names the caller gives tela's sources and messages.
+/// Names the caller gives tela's sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Labels {
     /// The source name of inline rules.
     pub inline: String,
     /// The prefix of std module names.
     pub std: String,
-    /// The prefix of error messages.
-    pub error: String,
 }
 
 impl Default for Labels {
@@ -326,36 +372,18 @@ impl Default for Labels {
         Self {
             inline: "tela.toml".to_owned(),
             std: "std".to_owned(),
-            error: "tela".to_owned(),
         }
     }
 }
 
-/// What the calling program declares: its extra module frontmatter keys, its
-/// labels, its data tables and its clock.
-#[derive(Debug, Clone, PartialEq)]
+/// What the calling program declares: its extra module frontmatter keys and
+/// its labels.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Spec {
     /// Module frontmatter keys beyond tela's own, returned raw per rule.
     pub meta_keys: BTreeSet<String>,
-    /// Source and message labels.
+    /// Source labels.
     pub labels: Labels,
-    /// Data tables every rule reads.
-    pub data: BTreeMap<String, Table>,
-    /// The time rules count from.
-    pub now: SystemTime,
-}
-
-impl Spec {
-    /// A spec with no extra keys or data, tela's labels and `now`.
-    #[must_use]
-    pub fn new(now: SystemTime) -> Self {
-        Self {
-            meta_keys: BTreeSet::new(),
-            labels: Labels::default(),
-            data: BTreeMap::new(),
-            now,
-        }
-    }
 }
 
 /// What a user configures: the `[lint]` table.
@@ -363,10 +391,10 @@ impl Spec {
 pub struct Settings {
     /// Inline rules.
     pub rules: Vec<InlineRule>,
-    /// Per-rule overrides by id.
-    pub config: BTreeMap<String, RuleConfig>,
-    /// Disabled rule ids.
-    pub disable: BTreeSet<String>,
+    /// Per-rule overrides.
+    pub config: BTreeMap<RuleId, RuleConfig>,
+    /// Disabled rules.
+    pub disable: BTreeSet<RuleId>,
     /// The frontmatter key a file disables rules with.
     pub disable_key: String,
     /// Semantic model options.
@@ -392,8 +420,8 @@ pub enum ConfigError {
     #[error("package {0:?} appears in two layers")]
     DuplicatePackage(String),
     /// Two inline rules share an id.
-    #[error("inline rule {0:?} is declared twice")]
-    DuplicateRule(String),
+    #[error("inline rule {0} is declared twice")]
+    DuplicateRule(RuleId),
     /// The per-file disable key is empty.
     #[error("disable_key is empty")]
     EmptyDisableKey,
@@ -429,7 +457,7 @@ impl Config {
         }
         let mut ids = BTreeSet::new();
         for rule in &settings.rules {
-            if !ids.insert(rule.id.as_str()) {
+            if !ids.insert(&rule.id) {
                 return Err(ConfigError::DuplicateRule(rule.id.clone()));
             }
         }
@@ -470,7 +498,7 @@ impl Config {
 #[non_exhaustive]
 pub struct RuleMeta {
     /// The rule id.
-    pub id: String,
+    pub id: RuleId,
     /// The module that defines it.
     pub module: String,
     /// Its effective severity.
@@ -492,8 +520,8 @@ pub enum Expect {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Example {
-    /// The rule id.
-    pub rule: String,
+    /// The rule.
+    pub rule: RuleId,
     /// The module that defines it.
     pub module: String,
     /// The example's line in the module.
@@ -525,8 +553,8 @@ pub enum Outcome {
 pub enum Selection {
     /// Every rule.
     All,
-    /// Only these ids.
-    Only(BTreeSet<String>),
+    /// Only these rules.
+    Only(BTreeSet<RuleId>),
 }
 
 impl Selection {
@@ -545,29 +573,8 @@ impl Selection {
 pub struct Corpus {
     /// The files, each a file node under the root.
     pub tree: Tree,
-    /// Precomputed targets, typed values, params and data.
+    /// Targets, typed values, params, data, model and clock.
     pub environment: Environment,
-}
-
-/// Rules compiled from a configuration.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Plan {
-    rules: Vec<RuleMeta>,
-    examples: Vec<Example>,
-}
-
-impl Plan {
-    /// The compiled rules.
-    #[must_use]
-    pub fn rules(&self) -> &[RuleMeta] {
-        &self.rules
-    }
-
-    /// Every rule's examples.
-    #[must_use]
-    pub fn examples(&self) -> &[Example] {
-        &self.examples
-    }
 }
 
 /// Why compiling failed.
@@ -585,45 +592,100 @@ pub enum CompileError {
         key: String,
     },
     /// A rule's query did not read.
-    #[error("module {module:?}, rule {rule:?}: {error}")]
+    #[error("module {module:?}, rule {rule}")]
     Query {
         /// The module.
         module: String,
         /// The rule.
-        rule: String,
+        rule: RuleId,
         /// The reader's error.
-        error: query::Error,
-    },
-    /// The semantic model did not load.
-    #[error("semantic model {model:?}: {message}")]
-    Model {
-        /// The model path.
-        model: String,
-        /// Why it failed.
-        message: String,
+        source: query::Error,
     },
 }
 
-/// Compiles the layers' modules, tela's std modules and inline rules.
-pub type CompileFn = fn(config: &Config) -> Result<Plan, CompileError>;
+/// Rules compiled from a configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plan {
+    rules: Vec<RuleMeta>,
+    examples: Vec<Example>,
+}
 
-/// Runs the selected rules over a corpus.
-pub type RunFn =
-    fn(plan: &Plan, corpus: &Corpus, rules: &Selection) -> Result<Vec<Diagnostic>, query::RunError>;
+impl Plan {
+    /// Compiles the layers' modules, tela's std modules and the inline rules.
+    ///
+    /// # Errors
+    /// Returns [`CompileError`] when a module is defined twice, declares an
+    /// unknown frontmatter key, or holds a query that does not read.
+    #[expect(
+        clippy::todo,
+        reason = "the compiler is ported from henia's lint package"
+    )]
+    pub fn compile(config: &Config) -> Result<Self, CompileError> {
+        let _ = config;
+        todo!()
+    }
 
-/// Runs one example against a corpus the caller built from it.
-pub type RunExampleFn = fn(plan: &Plan, example: &Example, corpus: &Corpus) -> Outcome;
+    /// The compiled rules.
+    #[must_use]
+    pub fn rules(&self) -> &[RuleMeta] {
+        &self.rules
+    }
+
+    /// Every rule's examples.
+    #[must_use]
+    pub fn examples(&self) -> &[Example] {
+        &self.examples
+    }
+
+    /// Runs the selected rules over `corpus`.
+    ///
+    /// # Errors
+    /// Returns [`query::RunError`] when a rule's query fails to match.
+    #[expect(
+        clippy::todo,
+        reason = "the runner is ported from henia's lint package"
+    )]
+    pub fn run(
+        &self,
+        corpus: &Corpus,
+        rules: &Selection,
+    ) -> Result<Vec<Diagnostic>, query::RunError> {
+        let _ = (corpus, rules);
+        todo!()
+    }
+
+    /// Runs one example against a corpus the caller built from it.
+    #[must_use]
+    #[expect(
+        clippy::todo,
+        reason = "the example runner is ported from henia's lint package"
+    )]
+    pub fn run_example(&self, example: &Example, corpus: &Corpus) -> Outcome {
+        let _ = (example, corpus);
+        todo!()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn id(id: &str) -> RuleId {
+        RuleId::new(id).unwrap()
+    }
+
     fn layer(package: &str) -> Layer {
         Layer::from_files(Some(package.to_owned()), vec![]).unwrap()
     }
 
-    fn now() -> SystemTime {
-        SystemTime::UNIX_EPOCH
+    #[test]
+    fn rule_ids_reject_empty_and_spaced_text() {
+        assert!(RuleId::new("").is_err());
+        assert!(RuleId::new("two words").is_err());
+        assert_eq!(
+            "duplicate-heading".parse::<RuleId>().map(|r| r.to_string()),
+            Ok("duplicate-heading".to_owned())
+        );
     }
 
     #[test]
@@ -638,7 +700,7 @@ mod tests {
     fn two_layers_of_one_package_are_rejected() {
         let result = Config::new(
             vec![layer("team"), layer("team")],
-            Spec::new(now()),
+            Spec::default(),
             Settings::default(),
         );
         assert_eq!(
@@ -657,7 +719,7 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(
-            Config::new(vec![], Spec::new(now()), settings),
+            Config::new(vec![], Spec::default(), settings),
             Err(ConfigError::MissingModel)
         );
     }
@@ -687,29 +749,36 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_need_a_rule() {
-        let at = Location {
-            file: "a.md".to_owned(),
-            line: 14,
-            column: 1,
-        };
-        assert_eq!(
-            Diagnostic::new("", at.clone(), Severity::Warning, "x"),
-            Err(UnnamedRule)
-        );
+    fn diagnostics_point_at_origins() {
+        let at = Origin::new(
+            "a.md",
+            Some(crate::tree::Position::new(0..5, 14..=14, 1).unwrap()),
+        )
+        .unwrap();
         let d = Diagnostic::new(
-            "duplicate-heading",
+            id("duplicate-heading"),
             at,
             Severity::Warning,
             "heading repeated",
-        )
-        .unwrap();
-        assert_eq!((d.rule(), d.location().line), ("duplicate-heading", 14));
+        );
+        assert_eq!(
+            (d.rule().as_str(), d.origin().line()),
+            ("duplicate-heading", Some(14))
+        );
+    }
+
+    #[test]
+    fn scores_carry_their_method_data() {
+        let score = Score::Cosine {
+            value: 0.98,
+            model: "potion-base-2M".to_owned(),
+        };
+        assert!((score.value() - 0.98).abs() < f64::EPSILON);
     }
 
     #[test]
     fn selections_filter_rule_ids() {
-        let only = Selection::Only(BTreeSet::from(["a".to_owned()]));
+        let only = Selection::Only(BTreeSet::from([id("a")]));
         assert!(only.includes("a"));
         assert!(!only.includes("b"));
         assert!(Selection::All.includes("b"));

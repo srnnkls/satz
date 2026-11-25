@@ -3,9 +3,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 use std::time::SystemTime;
 
-use crate::similarity::Embedder;
+use crate::similarity::{Embed, EmbedError};
 use crate::tree::{NodeId, Tree};
 
 /// Keys every node type takes.
@@ -62,16 +63,16 @@ pub struct TypeSpec {
 
 /// What a caller adds to the core schema.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Spec {
+pub struct SchemaSpec {
     /// New node types.
     pub types: Vec<TypeSpec>,
-    /// Keys added to existing types, as `(type, key)`.
-    pub keys: Vec<(String, String)>,
+    /// Keys added to existing types, by type.
+    pub keys: BTreeMap<String, BTreeSet<String>>,
     /// The unit, which must be a registered type.
     pub unit: Option<Unit>,
 }
 
-/// Why a [`Spec`] was rejected.
+/// Why a [`SchemaSpec`] was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SchemaError {
     /// A type is registered twice, or registers a core type.
@@ -111,7 +112,7 @@ impl Schema {
     /// Returns [`SchemaError::DuplicateType`] when `spec` registers a type
     /// twice or registers a core type, and [`SchemaError::UnknownType`] when
     /// an added key or the unit names a type the schema lacks.
-    pub fn new(spec: Spec) -> Result<Self, SchemaError> {
+    pub fn new(spec: SchemaSpec) -> Result<Self, SchemaError> {
         let mut schema = Self::core();
         for kind in spec.types {
             if schema.types.contains_key(&kind.name) {
@@ -121,12 +122,12 @@ impl Schema {
                 .types
                 .insert(kind.name, kind.keys.into_iter().collect());
         }
-        for (kind, key) in spec.keys {
+        for (kind, keys) in spec.keys {
             schema
                 .types
                 .get_mut(&kind)
                 .ok_or_else(|| SchemaError::UnknownType(kind.clone()))?
-                .insert(key);
+                .extend(keys);
         }
         if let Some(unit) = &spec.unit
             && !schema.types.contains_key(&unit.kind)
@@ -196,8 +197,8 @@ pub enum Attribute {
 /// Link targets resolved to unit nodes, keyed by the link's target.
 pub type Targets = BTreeMap<String, NodeId>;
 
-/// Typed attribute values, keyed by node and attribute key.
-pub type Typed = BTreeMap<(NodeId, String), Attribute>;
+/// Typed attribute values by node, then by attribute key.
+pub type Typed = BTreeMap<NodeId, BTreeMap<String, Attribute>>;
 
 /// A data table rules read as `row` nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,19 +209,20 @@ pub enum Table {
     List(Vec<String>),
 }
 
-/// What a query reads besides the tree; all of it precomputed by the caller.
-#[derive(Clone)]
+/// What a query reads besides the tree: everything the caller knows in
+/// advance, and the clock.
+#[derive(Debug, Clone)]
 pub struct Environment {
     /// Link targets resolved to unit nodes.
     pub targets: Targets,
     /// Typed attribute values.
     pub typed: Typed,
-    /// Values of `$params`.
+    /// Values of `$params`; a lint rule's own params override these.
     pub params: BTreeMap<String, Value>,
     /// Data tables by name.
     pub data: BTreeMap<String, Table>,
     /// The model behind `(similar …)`, if any.
-    pub embed: Option<Embedder>,
+    pub embed: Option<Arc<dyn Embed>>,
     /// The time `(older days)` counts from.
     pub now: SystemTime,
 }
@@ -240,35 +242,85 @@ impl Environment {
     }
 }
 
-impl fmt::Debug for Environment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Environment")
-            .field("targets", &self.targets)
-            .field("typed", &self.typed)
-            .field("params", &self.params)
-            .field("data", &self.data)
-            .field("embed", &self.embed.as_ref().map(|_| "<embedder>"))
-            .field("now", &self.now)
-            .finish()
-    }
+/// What kind of mistake a rejected query makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ErrorKind {
+    /// The source does not follow the grammar.
+    Syntax,
+    /// A pattern names a node type the schema lacks.
+    UnknownType,
+    /// A pattern names a key its type does not take.
+    UnknownKey,
+    /// A variable, capture or param is used before it is bound.
+    Unbound,
 }
 
 /// A query the reader rejected, at a byte offset of its source.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message} at offset {offset}")]
 pub struct Error {
-    /// The byte offset in the query source.
-    pub offset: usize,
-    /// What is wrong.
-    pub message: String,
-    /// A suggested fix, if one is known.
-    pub hint: Option<String>,
+    kind: ErrorKind,
+    offset: usize,
+    message: String,
+    hint: Option<String>,
 }
 
-/// A query that failed while matching, such as on a model that would not load.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub struct RunError(pub String);
+impl Error {
+    /// An error of `kind` at `offset`.
+    #[must_use]
+    pub fn new(kind: ErrorKind, offset: usize, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            offset,
+            message: message.into(),
+            hint: None,
+        }
+    }
+
+    /// The error with a suggested fix.
+    #[must_use]
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    /// What kind of mistake it is.
+    #[must_use]
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    /// The byte offset in the query source.
+    #[must_use]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// What is wrong.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// A suggested fix, if one is known.
+    #[must_use]
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+}
+
+/// A query that failed while matching.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RunError {
+    /// A pattern uses `(similar …)` but the environment has no model.
+    #[error("(similar …) needs a semantic model")]
+    NoModel,
+    /// The model failed to embed a text.
+    #[error(transparent)]
+    Embed(#[from] EmbedError),
+}
 
 /// A query read against a schema.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,10 +329,38 @@ pub struct Query {
 }
 
 impl Query {
+    /// Reads `source` against `schema`, ordering rows by `sort` (`?var` or
+    /// `@capture.key`, descending with a leading `-`).
+    ///
+    /// # Errors
+    /// Returns [`Error`] when the source is not a valid query for `schema`.
+    #[expect(
+        clippy::todo,
+        reason = "the reader is ported from henia's pattern package"
+    )]
+    pub fn read(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Self, Error> {
+        let _ = (source, schema, sort);
+        todo!()
+    }
+
     /// The source the query was read from.
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Matches the query over a shared tree; it never writes to nodes.
+    ///
+    /// # Errors
+    /// Returns [`RunError`] when a similarity pattern has no model or the
+    /// model fails.
+    #[expect(
+        clippy::todo,
+        reason = "the matcher is ported from henia's pattern package"
+    )]
+    pub fn run(&self, tree: &Tree, environment: &Environment) -> Result<Vec<Row>, RunError> {
+        let _ = (tree, environment);
+        todo!()
     }
 }
 
@@ -304,25 +384,17 @@ pub struct Row {
     pub vars: BTreeMap<String, String>,
 }
 
-/// Reads `source` against `schema`, ordering rows by `sort` (`?var`,
-/// `@capture.key`, descending with a leading `-`).
-pub type ReadFn = fn(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Query, Error>;
-
-/// Matches a query over a shared tree; it never writes to nodes.
-pub type RunFn =
-    fn(query: &Query, tree: &Tree, environment: &Environment) -> Result<Vec<Row>, RunError>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn skill_spec() -> Spec {
-        Spec {
+    fn skill_spec() -> SchemaSpec {
+        SchemaSpec {
             types: vec![TypeSpec {
                 name: "skill".to_owned(),
                 keys: vec!["id".to_owned(), "package".to_owned()],
             }],
-            keys: vec![("file".to_owned(), "file".to_owned())],
+            keys: BTreeMap::from([("file".to_owned(), BTreeSet::from(["file".to_owned()]))]),
             unit: Some(Unit {
                 kind: "skill".to_owned(),
                 id_key: "id".to_owned(),
@@ -352,12 +424,12 @@ mod tests {
 
     #[test]
     fn registering_a_core_type_again_fails() {
-        let spec = Spec {
+        let spec = SchemaSpec {
             types: vec![TypeSpec {
                 name: "heading".to_owned(),
                 keys: vec![],
             }],
-            ..Spec::default()
+            ..SchemaSpec::default()
         };
         assert_eq!(
             Schema::new(spec),

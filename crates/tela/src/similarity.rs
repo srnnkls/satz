@@ -2,10 +2,31 @@
 //! over embeddings from a caller's model.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::error::Error;
+use std::fmt;
 
-/// Embeds a text as a vector; the one behavior a caller supplies.
-pub type Embedder = Arc<dyn Fn(&str) -> Vec<f32> + Send + Sync>;
+/// A semantic model that embeds texts as vectors.
+pub trait Embed: Send + Sync + fmt::Debug {
+    /// The model's name, reported with every cosine score.
+    fn model(&self) -> &str;
+
+    /// The raw embedding of `text`.
+    ///
+    /// # Errors
+    /// Returns [`EmbedError`] when the model cannot embed the text.
+    fn embed(&self, text: &str) -> Result<Vec<f32>, EmbedError>;
+}
+
+/// A model that failed to embed a text.
+#[derive(Debug, thiserror::Error)]
+#[error("model {model:?} failed to embed a text")]
+pub struct EmbedError {
+    /// The model.
+    pub model: String,
+    /// The model's own error.
+    #[source]
+    pub source: Box<dyn Error + Send + Sync>,
+}
 
 /// The lower-cased words of `text`: runs of letters and digits.
 #[must_use]
@@ -86,31 +107,36 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Embedding(Vec<f64>);
 
-/// An embedding with a NaN or infinite component.
+/// Why a raw vector does not normalize.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("semantic model returned a non-finite embedding")]
-pub struct NonFinite;
+pub enum EmbeddingError {
+    /// A component is NaN or infinite.
+    #[error("embedding has a non-finite component")]
+    NonFinite,
+    /// Every component is zero.
+    #[error("embedding is the zero vector")]
+    Zero,
+}
 
 impl Embedding {
-    /// Normalizes a model's raw vector; `None` for the zero vector.
+    /// Normalizes a model's raw vector.
     ///
     /// # Errors
-    /// Returns [`NonFinite`] when a component is NaN or infinite.
-    pub fn new(raw: &[f32]) -> Result<Option<Self>, NonFinite> {
+    /// Returns [`EmbeddingError::NonFinite`] for a NaN or infinite component
+    /// and [`EmbeddingError::Zero`] for the zero vector.
+    pub fn new(raw: &[f32]) -> Result<Self, EmbeddingError> {
         let mut norm = 0.0_f64;
         for &value in raw {
             let x = f64::from(value);
             if !x.is_finite() {
-                return Err(NonFinite);
+                return Err(EmbeddingError::NonFinite);
             }
             norm = norm.hypot(x);
         }
         if norm == 0.0 {
-            return Ok(None);
+            return Err(EmbeddingError::Zero);
         }
-        Ok(Some(Self(
-            raw.iter().map(|&x| f64::from(x) / norm).collect(),
-        )))
+        Ok(Self(raw.iter().map(|&x| f64::from(x) / norm).collect()))
     }
 
     /// The cosine similarity with `other`.
@@ -154,11 +180,11 @@ mod tests {
     }
 
     #[test]
-    fn embeddings_normalize_and_reject_non_finite() {
-        let a = Embedding::new(&[3.0, 4.0]).unwrap().unwrap();
-        let b = Embedding::new(&[4.0, 3.0]).unwrap().unwrap();
+    fn embeddings_normalize_and_reject_degenerate_vectors() {
+        let a = Embedding::new(&[3.0, 4.0]).unwrap();
+        let b = Embedding::new(&[4.0, 3.0]).unwrap();
         assert!(close(a.cosine(&b), 24.0 / 25.0));
-        assert_eq!(Embedding::new(&[0.0, 0.0]), Ok(None));
-        assert_eq!(Embedding::new(&[f32::NAN]), Err(NonFinite));
+        assert_eq!(Embedding::new(&[0.0, 0.0]), Err(EmbeddingError::Zero));
+        assert_eq!(Embedding::new(&[f32::NAN]), Err(EmbeddingError::NonFinite));
     }
 }

@@ -1,12 +1,31 @@
-//! The Markdown frontend: node trees, frontmatter and the directive-aware
-//! document editor, registered as a [`Frontend`](crate::frontend::Frontend).
+//! The Markdown frontend's document side: frontmatter and the
+//! directive-aware document editor.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::frontend::{Parsed, Problem};
 use crate::tree::Origin;
+
+/// Malformed input met while parsing a document or its frontmatter.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{origin}: {message}")]
+pub struct Problem {
+    /// Where the problem starts.
+    pub origin: Origin,
+    /// What is wrong.
+    pub message: String,
+}
+
+/// A parse result with the problems met along the way; parsing never fails
+/// outright.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Parsed<T> {
+    /// What was parsed.
+    pub value: T,
+    /// Problems in source order.
+    pub problems: Vec<Problem>,
+}
 
 /// One frontmatter key, or one element of a list value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,8 +49,18 @@ pub struct Frontmatter {
     pub lines: u32,
 }
 
-/// Splits the frontmatter off `text`, if it opens with one.
-pub type FrontmatterFn = fn(file: &str, text: &str) -> Parsed<Option<Frontmatter>>;
+impl Frontmatter {
+    /// Splits the frontmatter off `text` of `file`, if it opens with one.
+    #[must_use]
+    #[expect(
+        clippy::todo,
+        reason = "the frontmatter reader is ported with the Markdown frontend"
+    )]
+    pub fn parse(file: &str, text: &str) -> Parsed<Option<Self>> {
+        let _ = (file, text);
+        todo!()
+    }
+}
 
 /// One expansion step: the directive that invoked a component and the
 /// component line that produced the item.
@@ -45,7 +74,7 @@ pub struct Call {
 
 /// The expansion steps behind an item, outermost first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Backtrace(pub Vec<Call>);
+pub struct Expansion(pub Vec<Call>);
 
 /// A mutable node of a [`Document`], named with the tree's node types.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,11 +92,11 @@ pub struct Item {
     /// Where the item was parsed from.
     pub origin: Origin,
     /// How expansion produced it.
-    pub backtrace: Backtrace,
+    pub expansion: Expansion,
 }
 
 impl Item {
-    /// A new item with no attributes, text, children or backtrace.
+    /// A new item with no attributes, text, children or expansion.
     #[must_use]
     pub fn new(kind: impl Into<String>, origin: Origin) -> Self {
         Self {
@@ -76,20 +105,9 @@ impl Item {
             text: String::new(),
             children: Vec::new(),
             origin,
-            backtrace: Backtrace::default(),
+            expansion: Expansion::default(),
         }
     }
-}
-
-/// A parsed file whose items keep their origins; writing it back leaves
-/// untouched source intact.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Document {
-    /// The file it was parsed from.
-    pub file: String,
-    /// The top-level items.
-    pub children: Vec<Item>,
 }
 
 /// How directives render.
@@ -131,18 +149,72 @@ impl fmt::Display for RenderFormat {
     }
 }
 
-/// Parses `text` of `file` into an editable document.
-pub type ParseDocumentFn = fn(file: &str, text: &str) -> Parsed<Document>;
+/// A parsed file whose items keep their origins. Its [`Display`](fmt::Display)
+/// writes it back: untouched items byte for byte, edited items in canonical
+/// form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Document {
+    /// The file it was parsed from.
+    pub file: String,
+    /// The top-level items.
+    pub children: Vec<Item>,
+}
 
-/// Writes a document back: untouched items byte for byte, edited items in
-/// canonical form.
-pub type WriteFn = fn(document: &Document) -> String;
+impl Document {
+    /// An empty document for `file`.
+    #[must_use]
+    pub fn new(file: impl Into<String>) -> Self {
+        Self {
+            file: file.into(),
+            children: Vec::new(),
+        }
+    }
 
-/// Renders the document's directives in place.
-pub type RenderFn = fn(document: &mut Document, format: RenderFormat) -> Result<(), Problem>;
+    /// Parses `text` of `file` into an editable document.
+    #[must_use]
+    #[expect(
+        clippy::todo,
+        reason = "the document parser is ported from henia's markup package"
+    )]
+    pub fn parse(file: &str, text: &str) -> Parsed<Self> {
+        let _ = (file, text);
+        todo!()
+    }
 
-/// Replaces each directive named `name` by its content.
-pub type UnwrapFn = fn(document: &Document, name: &str) -> Document;
+    /// Renders the document's directives in place.
+    ///
+    /// # Errors
+    /// Returns the [`Problem`] of a directive that cannot render in `format`.
+    #[expect(
+        clippy::todo,
+        reason = "rendering is ported from henia's markup package"
+    )]
+    pub fn render(&mut self, format: RenderFormat) -> Result<(), Problem> {
+        let _ = format;
+        todo!()
+    }
+
+    /// The document with each directive named `name` replaced by its
+    /// content.
+    #[must_use]
+    #[expect(
+        clippy::todo,
+        reason = "unwrapping is ported from henia's markup package"
+    )]
+    pub fn unwrap_directive(&self, name: &str) -> Self {
+        let _ = name;
+        todo!()
+    }
+}
+
+impl fmt::Display for Document {
+    #[expect(clippy::todo, reason = "writing is ported from henia's markup package")]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let _ = f;
+        todo!()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -161,5 +233,15 @@ mod tests {
             "html".parse::<RenderFormat>(),
             Err(UnknownFormat("html".to_owned()))
         );
+    }
+
+    #[test]
+    fn problems_are_errors_that_name_their_origin() {
+        let problem = Problem {
+            origin: Origin::new("a.md", None).unwrap(),
+            message: "unclosed directive".to_owned(),
+        };
+        let error: Box<dyn std::error::Error> = Box::new(problem);
+        assert_eq!(error.to_string(), "a.md: unclosed directive");
     }
 }

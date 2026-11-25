@@ -7,12 +7,18 @@
 mod position;
 
 use std::collections::BTreeMap;
+use std::fmt;
+use std::iter::FusedIterator;
 use std::num::NonZeroU32;
 
-pub use position::{Origin, Position, PositionError};
+pub use position::{EmptyFile, Origin, Position, PositionError};
+
+/// The node kind of malformed input a frontend met.
+pub const PROBLEM: &str = "problem";
 
 /// The data of one node; its place in the tree is the arena's.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Node {
     /// The node type, such as `heading`, `paragraph` or a caller's `skill`.
     pub kind: String,
@@ -38,16 +44,29 @@ impl Node {
             origin,
         }
     }
+
+    /// A `problem` node reporting `message` at `origin`.
+    #[must_use]
+    pub fn problem(message: impl Into<String>, origin: Origin) -> Self {
+        let message = message.into();
+        let mut node = Self::new(PROBLEM, origin);
+        node.attrs.insert("message".to_owned(), message.clone());
+        node.text = message;
+        node
+    }
 }
 
 /// Identifies a node within the tree that issued it.
+///
+/// Ids are tree-local: an id from another tree is not detected unless it is
+/// out of this tree's range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(NonZeroU32);
 
 impl NodeId {
-    fn from_slot(slot: usize) -> Self {
-        let raw = u32::try_from(slot + 1).unwrap_or(u32::MAX);
-        Self(NonZeroU32::new(raw).unwrap_or(NonZeroU32::MAX))
+    fn from_slot(slot: usize) -> Option<Self> {
+        let raw = u32::try_from(slot.checked_add(1)?).ok()?;
+        NonZeroU32::new(raw).map(Self)
     }
 
     fn slot(self) -> usize {
@@ -55,12 +74,24 @@ impl NodeId {
     }
 }
 
-/// A [`NodeId`] the tree did not issue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("node {0:?} is not in this tree")]
-pub struct UnknownNode(pub NodeId);
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
-#[derive(Debug, Clone)]
+/// Why a tree could not be changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TreeError {
+    /// The id is out of this tree's range.
+    #[error("node {0} is out of this tree's range")]
+    UnknownNode(NodeId),
+    /// The tree already holds `u32::MAX` nodes.
+    #[error("tree is full")]
+    Full,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Slot {
     node: Node,
     parent: Option<NodeId>,
@@ -69,7 +100,7 @@ struct Slot {
 }
 
 /// An arena of nodes under one root.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tree {
     slots: Vec<Slot>,
 }
@@ -93,11 +124,11 @@ impl Tree {
     pub fn root(&self) -> NodeRef<'_> {
         NodeRef {
             tree: self,
-            id: NodeId::from_slot(0),
+            id: NodeId(NonZeroU32::MIN),
         }
     }
 
-    /// The node `id` names, if this tree issued it.
+    /// The node `id` names, if it is in this tree's range.
     #[must_use]
     pub fn get(&self, id: NodeId) -> Option<NodeRef<'_>> {
         (id.slot() < self.slots.len()).then_some(NodeRef { tree: self, id })
@@ -108,25 +139,26 @@ impl Tree {
         self.slots.get_mut(id.slot()).map(|slot| &mut slot.node)
     }
 
-    /// The number of nodes.
+    /// The number of nodes, the root included.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         self.slots.len()
     }
 
-    /// Always false: a tree holds at least its root.
+    /// The `problem` nodes, in document order.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
+    pub fn problems(&self) -> Problems<'_> {
+        Problems(self.root().descendants())
     }
 
     /// Appends `node` as the last child of `parent`.
     ///
     /// # Errors
-    /// Returns [`UnknownNode`] when this tree did not issue `parent`.
-    pub fn append(&mut self, parent: NodeId, node: Node) -> Result<NodeId, UnknownNode> {
+    /// Returns [`TreeError::UnknownNode`] when `parent` is out of range and
+    /// [`TreeError::Full`] when the tree holds `u32::MAX` nodes.
+    pub fn append(&mut self, parent: NodeId, node: Node) -> Result<NodeId, TreeError> {
         let index = self.slot(parent)?.children.len();
-        let id = NodeId::from_slot(self.slots.len());
+        let id = NodeId::from_slot(self.slots.len()).ok_or(TreeError::Full)?;
         self.slots.push(Slot {
             node,
             parent: Some(parent),
@@ -139,15 +171,17 @@ impl Tree {
 
     /// Moves `subtree` under `parent` as its last child and returns the id of
     /// the subtree's former root. The subtree's ids are remapped; ids it issued
-    /// before do not name nodes here.
+    /// before do not name its nodes here.
     ///
     /// # Errors
-    /// Returns [`UnknownNode`] when this tree did not issue `parent`.
-    pub fn graft(&mut self, parent: NodeId, subtree: Tree) -> Result<NodeId, UnknownNode> {
+    /// Returns [`TreeError::UnknownNode`] when `parent` is out of range and
+    /// [`TreeError::Full`] when the result would exceed `u32::MAX` nodes.
+    pub fn graft(&mut self, parent: NodeId, subtree: Tree) -> Result<NodeId, TreeError> {
         let index = self.slot(parent)?.children.len();
         let offset = self.slots.len();
-        let remap = |id: NodeId| NodeId::from_slot(id.slot() + offset);
-        let root = NodeId::from_slot(offset);
+        let root = NodeId::from_slot(offset).ok_or(TreeError::Full)?;
+        NodeId::from_slot(offset + subtree.slots.len() - 1).ok_or(TreeError::Full)?;
+        let remap = |id: NodeId| NodeId::from_slot(id.slot() + offset).unwrap_or(id);
         self.slots
             .extend(subtree.slots.into_iter().map(|slot| Slot {
                 parent: Some(slot.parent.map_or(parent, remap)),
@@ -163,17 +197,19 @@ impl Tree {
         Ok(root)
     }
 
-    fn slot(&self, id: NodeId) -> Result<&Slot, UnknownNode> {
-        self.slots.get(id.slot()).ok_or(UnknownNode(id))
+    fn slot(&self, id: NodeId) -> Result<&Slot, TreeError> {
+        self.slots.get(id.slot()).ok_or(TreeError::UnknownNode(id))
     }
 
-    fn slot_mut(&mut self, id: NodeId) -> Result<&mut Slot, UnknownNode> {
-        self.slots.get_mut(id.slot()).ok_or(UnknownNode(id))
+    fn slot_mut(&mut self, id: NodeId) -> Result<&mut Slot, TreeError> {
+        self.slots
+            .get_mut(id.slot())
+            .ok_or(TreeError::UnknownNode(id))
     }
 }
 
 /// A read handle on one node of a borrowed tree.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct NodeRef<'a> {
     tree: &'a Tree,
     id: NodeId,
@@ -217,8 +253,11 @@ impl<'a> NodeRef<'a> {
 
     /// The children in document order.
     #[must_use]
-    pub fn children(self) -> impl DoubleEndedIterator<Item = NodeRef<'a>> + ExactSizeIterator {
-        self.slot().children.iter().map(move |&id| self.at(id))
+    pub fn children(self) -> Children<'a> {
+        Children {
+            tree: self.tree,
+            ids: self.slot().children.iter(),
+        }
     }
 
     /// The child at `index`.
@@ -235,27 +274,129 @@ impl<'a> NodeRef<'a> {
     }
 
     /// The parent, its parent, and so on up to the root.
-    pub fn ancestors(self) -> impl Iterator<Item = NodeRef<'a>> {
-        std::iter::successors(self.parent(), |node| node.parent())
+    #[must_use]
+    pub fn ancestors(self) -> Ancestors<'a> {
+        Ancestors(self.parent())
     }
 
     /// This node and every node below it, in document order.
-    pub fn descendants(self) -> impl Iterator<Item = NodeRef<'a>> {
-        let mut stack = vec![self];
-        std::iter::from_fn(move || {
-            let node = stack.pop()?;
-            stack.extend(node.children().rev());
-            Some(node)
-        })
+    #[must_use]
+    pub fn descendants(self) -> Descendants<'a> {
+        Descendants(vec![self])
     }
 }
+
+impl fmt::Debug for NodeRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NodeRef")
+            .field("id", &self.id)
+            .field("node", self.node())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for NodeRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.tree, other.tree) && self.id == other.id
+    }
+}
+
+impl Eq for NodeRef<'_> {}
+
+/// The children of a node; see [`NodeRef::children`].
+#[derive(Clone)]
+pub struct Children<'a> {
+    tree: &'a Tree,
+    ids: std::slice::Iter<'a, NodeId>,
+}
+
+impl fmt::Debug for Children<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.clone()).finish()
+    }
+}
+
+impl<'a> Iterator for Children<'a> {
+    type Item = NodeRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let tree = self.tree;
+        self.ids.next().map(|&id| NodeRef { tree, id })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ids.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for Children<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let tree = self.tree;
+        self.ids.next_back().map(|&id| NodeRef { tree, id })
+    }
+}
+
+impl ExactSizeIterator for Children<'_> {}
+
+impl FusedIterator for Children<'_> {}
+
+/// The ancestors of a node, nearest first; see [`NodeRef::ancestors`].
+#[derive(Debug, Clone)]
+pub struct Ancestors<'a>(Option<NodeRef<'a>>);
+
+impl<'a> Iterator for Ancestors<'a> {
+    type Item = NodeRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.0?;
+        self.0 = node.parent();
+        Some(node)
+    }
+}
+
+impl FusedIterator for Ancestors<'_> {}
+
+/// A node and its descendants in document order; see
+/// [`NodeRef::descendants`].
+#[derive(Debug, Clone)]
+pub struct Descendants<'a>(Vec<NodeRef<'a>>);
+
+impl<'a> Iterator for Descendants<'a> {
+    type Item = NodeRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.0.pop()?;
+        self.0.extend(node.children().rev());
+        Some(node)
+    }
+}
+
+impl FusedIterator for Descendants<'_> {}
+
+/// The `problem` nodes of a tree; see [`Tree::problems`].
+#[derive(Debug, Clone)]
+pub struct Problems<'a>(Descendants<'a>);
+
+impl<'a> Iterator for Problems<'a> {
+    type Item = NodeRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.find(|node| node.node().kind == PROBLEM)
+    }
+}
+
+impl FusedIterator for Problems<'_> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn origin() -> Origin {
+        Origin::new("a.md", None).unwrap()
+    }
+
     fn node(kind: &str) -> Node {
-        Node::new(kind, Origin::new("a.md", None).unwrap())
+        Node::new(kind, origin())
     }
 
     fn kinds<'a>(nodes: impl Iterator<Item = NodeRef<'a>>) -> Vec<&'a str> {
@@ -284,12 +425,15 @@ mod tests {
     }
 
     #[test]
-    fn descendants_run_in_document_order() {
-        let (tree, ..) = sample();
+    fn iterators_run_in_document_order() {
+        let (tree, section, ..) = sample();
         assert_eq!(
             kinds(tree.root().descendants()),
             ["file", "section", "heading", "paragraph"]
         );
+        let children = tree.get(section).unwrap().children();
+        assert_eq!(children.len(), 2);
+        assert_eq!(kinds(children.rev()), ["paragraph", "heading"]);
     }
 
     #[test]
@@ -308,30 +452,46 @@ mod tests {
             kinds(g.child(0).unwrap().children()),
             ["heading", "paragraph"]
         );
-        assert_eq!(tree.len(), 8);
+        assert_eq!(tree.node_count(), 8);
     }
 
     #[test]
-    fn foreign_ids_are_rejected() {
+    fn out_of_range_ids_are_rejected() {
         let mut small = Tree::new(node("file"));
-        let (big, _, _, paragraph) = sample();
+        let (_, _, _, paragraph) = sample();
         assert!(small.get(paragraph).is_none());
         assert_eq!(
             small.append(paragraph, node("x")),
-            Err(UnknownNode(paragraph))
+            Err(TreeError::UnknownNode(paragraph))
         );
-        assert!(big.get(paragraph).is_some());
+    }
+
+    #[test]
+    fn problems_are_nodes() {
+        let (mut tree, section, ..) = sample();
+        tree.append(section, Node::problem("unclosed directive", origin()))
+            .unwrap();
+        let problems: Vec<_> = tree.problems().map(|p| p.node().text.as_str()).collect();
+        assert_eq!(problems, ["unclosed directive"]);
+    }
+
+    #[test]
+    fn handles_compare_by_tree_and_id() {
+        let (tree, section, ..) = sample();
+        let (other, ..) = sample();
+        assert_eq!(tree.get(section), tree.get(section));
+        assert_ne!(tree.get(section), other.get(section));
     }
 
     #[test]
     fn node_line_and_origin_line_stay_apart() {
-        let body = Position::new(120, 131, 10, 10, 1).unwrap();
+        let body = Position::new(120..131, 10..=10, 1).unwrap();
         let mut heading = Node::new(
             "heading",
             Origin::new("a.md", Some(body.shifted(4))).unwrap(),
         );
         heading.position = Some(body);
-        assert_eq!(heading.position.map(Position::line), Some(10));
+        assert_eq!(heading.position.as_ref().map(Position::line), Some(10));
         assert_eq!(heading.origin.line(), Some(14));
     }
 
