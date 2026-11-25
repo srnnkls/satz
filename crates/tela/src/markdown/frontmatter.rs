@@ -98,6 +98,14 @@ fn line_count(text: &str) -> u32 {
     u32::try_from(text.matches('\n').count()).unwrap_or(u32::MAX)
 }
 
+/// The byte offset the body of `text` starts at: after a closed fence, else 0.
+pub(super) fn body_offset(text: &str) -> usize {
+    match fence(text) {
+        Some(Fence::Closed { body, .. }) => body,
+        _ => 0,
+    }
+}
+
 /// A leading `---` fence and what follows it.
 enum Fence<'a> {
     /// The YAML between the fences and the byte offset of the body.

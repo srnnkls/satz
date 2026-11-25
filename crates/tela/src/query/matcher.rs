@@ -775,9 +775,13 @@ impl<'q, 't> Matcher<'q, 't> {
         let node = self.view.node(at);
         Some(match key {
             "text" => node.text.trim().to_owned(),
-            "words" => self.measure(at, |n| words(&n.text).len()).to_string(),
+            "words" => self
+                .measure(at, |n| words(&[n.text.as_str(), &n.body].concat()).len())
+                .to_string(),
             "lines" => self.measure(at, lines).to_string(),
-            "chars" => self.measure(at, |n| n.text.chars().count()).to_string(),
+            "chars" => self
+                .measure(at, |n| n.text.chars().count() + n.body.chars().count())
+                .to_string(),
             "norm" => lowercase(&node.text.split_whitespace().collect::<Vec<_>>().join(" ")),
             "node" => format!("{at:09}"),
             "position" => {
@@ -1019,11 +1023,11 @@ fn submatches(
     Some(vars)
 }
 
-/// A node's line count: a file's lines of text, or its span of lines.
+/// A node's line count: a file's lines of body, or its span of lines.
 pub(crate) fn lines(node: &crate::tree::Node) -> usize {
     if node.kind == "file" {
-        let body = node.text.strip_suffix('\n').unwrap_or(&node.text);
-        return if node.text.is_empty() {
+        let body = node.body.strip_suffix('\n').unwrap_or(&node.body);
+        return if node.body.is_empty() {
             0
         } else {
             body.matches('\n').count() + 1

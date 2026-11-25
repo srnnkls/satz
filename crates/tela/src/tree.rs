@@ -24,8 +24,11 @@ pub struct Node {
     pub kind: String,
     /// Keyed attributes, such as `level` or `url`.
     pub attrs: BTreeMap<String, String>,
-    /// The node's text.
+    /// The node's text, which text keys, `:contains` and `:matches` read.
     pub text: String,
+    /// A whole-file node's text, frontmatter excluded, which only the size
+    /// keys `:lines`, `:words` and `:chars` measure; empty on other nodes.
+    pub body: String,
     /// The position in the parsed text, absent for a whole-file node.
     pub position: Option<Position>,
     /// The file and source position every reported position reads.
@@ -33,13 +36,15 @@ pub struct Node {
 }
 
 impl Node {
-    /// A node of `kind` from `origin`, with no attributes, text or position.
+    /// A node of `kind` from `origin`, with no attributes, text, body or
+    /// position.
     #[must_use]
     pub fn new(kind: impl Into<String>, origin: Origin) -> Self {
         Self {
             kind: kind.into(),
             attrs: BTreeMap::new(),
             text: String::new(),
+            body: String::new(),
             position: None,
             origin,
         }

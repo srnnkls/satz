@@ -22,7 +22,9 @@ impl Frontend for Plain {
 
     fn parse(&self, file: &str, text: &str) -> Tree {
         let file: Arc<str> = Arc::from(file);
-        let mut tree = Tree::new(Node::new("file", Origin::named(&file, None)));
+        let mut root = Node::new("file", Origin::named(&file, None));
+        text.clone_into(&mut root.body);
+        let mut tree = Tree::new(root);
         let root = tree.root().id();
         for span in Paragraphs::new(text) {
             let position = position(text, span);
@@ -119,6 +121,14 @@ mod tests {
         );
         assert_eq!(paragraphs(""), Vec::<String>::new());
         assert_eq!(paragraphs("\n \n"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_file_holds_the_whole_text_as_its_body() {
+        let tree = Plain.parse("notes.txt", "a\n\nb\n");
+        let file = tree.root().node();
+        assert_eq!(file.body, "a\n\nb\n");
+        assert!(file.text.is_empty());
     }
 
     #[test]

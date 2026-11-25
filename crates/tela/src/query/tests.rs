@@ -64,7 +64,6 @@ impl Corpus {
                     .graft(skill, Markdown::new().parse(path, text))
                     .unwrap();
                 let node = tree.node_mut(file).unwrap();
-                node.text = text.to_owned();
                 node.attrs.insert("path".to_owned(), path.to_owned());
                 node.attrs
                     .insert("main".to_owned(), (path == "SKILL.md").to_string());
@@ -113,8 +112,7 @@ impl Corpus {
         }
     }
 
-    /// Each row as `capture=text+text`, captures in query order; files show
-    /// no text, as henia's file elements hold theirs in a separate body.
+    /// Each row as `capture=text+text`, captures in query order.
     fn texts(&self, query: &str, rows: &[Row]) -> Vec<String> {
         let query = self.read(query);
         rows.iter()
@@ -125,12 +123,7 @@ impl Corpus {
                     .map(|name| {
                         let texts: Vec<&str> = hits(row, name)
                             .iter()
-                            .map(|hit| {
-                                self.node(hit)
-                                    .map(NodeRef::node)
-                                    .filter(|n| n.kind != "file")
-                                    .map_or("", |n| n.text.as_str())
-                            })
+                            .map(|hit| self.node(hit).map_or("", |n| n.node().text.as_str()))
                             .collect();
                         format!("{name}={}", texts.join("+"))
                     })
@@ -1100,6 +1093,44 @@ fn qualified_unit_ids_match() {
     assert_eq!(c.run(r#"(skill :id "pkg:a") @s"#).len(), 1);
     assert_eq!(c.run(r#"(skill :id "a") @s"#).len(), 1);
     assert!(c.run(r#"(skill :id "other:a") @s"#).is_empty());
+}
+
+#[test]
+fn files_and_units_measure_their_bodies() {
+    let c = Corpus::new(
+        &[(
+            "a",
+            &[
+                (
+                    "SKILL.md",
+                    "---\nname: a\n---\n\n# A\n\nHello wörld, two\nlines.\n",
+                ),
+                ("refs/more.md", "More words here.\n"),
+            ],
+        )],
+        &[],
+    );
+    let sizes = |query: &str| -> Vec<String> {
+        c.run(query)
+            .iter()
+            .map(|row| {
+                ["l", "w", "c"]
+                    .map(|name| row.value(name).unwrap().to_string())
+                    .join(" ")
+            })
+            .collect()
+    };
+    let measures = "(sum :lines @n @l) (sum :words @n @w) (sum :chars @n @c)";
+    assert_eq!(
+        sizes(&format!("(file) @n (group @n {measures})")),
+        ["4 5 29", "1 3 17"]
+    );
+    assert_eq!(
+        sizes(&format!("(skill) @n (group @n {measures})")),
+        ["5 8 46"]
+    );
+    assert!(c.run(r#"(file :contains "hello") @f"#).is_empty());
+    assert!(c.run("(file :matches /Hello/) @f").is_empty());
 }
 
 #[test]

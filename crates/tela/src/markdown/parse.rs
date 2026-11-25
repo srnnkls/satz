@@ -7,7 +7,7 @@ use markdown_it::links::LinkFormatter;
 use super::attributes::Fault;
 use super::builder::{self, Element};
 use super::directive;
-use super::frontmatter::Frontmatter;
+use super::frontmatter::{self, Frontmatter};
 use super::mapping;
 use crate::frontend::Frontend;
 use crate::tree::{Node, NodeId, Origin, Position, Tree};
@@ -61,9 +61,16 @@ impl Frontend for Markdown {
 
     fn parse(&self, file: &str, text: &str) -> Tree {
         let file: Arc<str> = Arc::from(file);
-        let mut tree = Tree::new(Node::new("file", Origin::named(&file, None)));
-        let root = tree.root().id();
         let parsed = Frontmatter::parse(&file, text);
+        let frontmatter = parsed.value;
+        let (body, shift) = frontmatter.as_ref().map_or_else(
+            || (&text[frontmatter::body_offset(text)..], 0),
+            |head| (&text[head.body..], head.lines),
+        );
+        let mut root = Node::new("file", Origin::named(&file, None));
+        body.clone_into(&mut root.body);
+        let mut tree = Tree::new(root);
+        let root = tree.root().id();
         if let Some(problem) = parsed.problems.into_iter().next() {
             let mut node = Node::problem(problem.message, problem.origin.clone());
             node.attrs
@@ -72,10 +79,6 @@ impl Frontend for Markdown {
             let _ = tree.append(root, node);
             return tree;
         }
-        let frontmatter = parsed.value;
-        let (body, shift) = frontmatter
-            .as_ref()
-            .map_or((text, 0), |head| (&text[head.body..], head.lines));
         if let Some(head) = &frontmatter {
             append_frontmatter(&mut tree, root, &file, text, head);
         }
@@ -649,6 +652,21 @@ mod tests {
         assert_eq!(problem.attrs["kind"], "frontmatter");
         assert_eq!(problem.text, "unclosed YAML frontmatter");
         assert_eq!(problem.origin.to_string(), "a.md:1:1");
+    }
+
+    #[test]
+    fn the_file_body_is_the_text_after_its_frontmatter() {
+        for (text, body) in [
+            ("# T\n", "# T\n"),
+            ("---\na: 1\n---\n\n# T\n", "# T\n"),
+            ("---\na: [\n---\nafter\n", "after\n"),
+            ("---\na: [\n# T\n", "---\na: [\n# T\n"),
+        ] {
+            let tree = parse(text);
+            let file = tree.root().node();
+            assert_eq!(file.body, body, "{text:?}");
+            assert!(file.text.is_empty());
+        }
     }
 
     #[test]
