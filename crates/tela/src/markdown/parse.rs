@@ -19,7 +19,7 @@ use crate::tree::{Node, NodeId, Origin, Position, Tree};
 /// sections and blocks. Node positions are relative to the body; origins are
 /// source positions.
 pub struct Markdown {
-    parser: MarkdownIt,
+    pub(super) parser: MarkdownIt,
 }
 
 impl Markdown {
@@ -84,7 +84,7 @@ impl Frontend for Markdown {
             let _ = tree.append(root, problem(&file, source, &faults, shift));
         }
         let place = Place { file: &file, shift };
-        for element in builder::build(&doc).children {
+        for element in builder::build(&doc, true).children {
             place.graft(&mut tree, root, element);
         }
         tree

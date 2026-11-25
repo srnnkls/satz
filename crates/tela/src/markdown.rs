@@ -4,17 +4,24 @@
 mod attributes;
 mod builder;
 mod directive;
+mod document;
 mod frontmatter;
 mod parse;
+mod render;
+#[cfg(test)]
+mod testing;
+mod write;
 mod yaml;
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
 pub use frontmatter::{Entry, Frontmatter};
 pub use parse::Markdown;
 
+use self::document::Snapshot;
 use crate::tree::Origin;
 
 /// Malformed input met while parsing a document or its frontmatter.
@@ -52,7 +59,11 @@ pub struct Call {
 pub struct Expansion(pub Vec<Call>);
 
 /// A mutable node of a [`Document`], named with the tree's node types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// A parsed item remembers its source, so that writing it back keeps its
+/// bytes until it is edited; its clones share that memory. Equality
+/// compares the public fields.
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct Item {
     /// The node type.
@@ -68,6 +79,8 @@ pub struct Item {
     pub origin: Origin,
     /// How expansion produced it.
     pub expansion: Expansion,
+    snapshot: Option<Arc<Snapshot>>,
+    anchors: Vec<Arc<Snapshot>>,
 }
 
 impl Item {
@@ -81,7 +94,56 @@ impl Item {
             children: Vec::new(),
             origin,
             expansion: Expansion::default(),
+            snapshot: None,
+            anchors: Vec::new(),
         }
+    }
+
+    /// `items` marked as replacing this item: placed among its former
+    /// siblings, they are written where it stood, after its leading source.
+    #[must_use]
+    pub fn replace(&self, items: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        let chain: Vec<Arc<Snapshot>> =
+            self.snapshot.iter().chain(&self.anchors).cloned().collect();
+        items
+            .into_iter()
+            .map(|mut item| {
+                let anchored = item
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|own| chain.iter().any(|a| Arc::ptr_eq(a, own)));
+                if !anchored {
+                    item.anchors.clone_from(&chain);
+                }
+                item
+            })
+            .collect()
+    }
+}
+
+impl PartialEq for Item {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.attrs == other.attrs
+            && self.text == other.text
+            && self.children == other.children
+            && self.origin == other.origin
+            && self.expansion == other.expansion
+    }
+}
+
+impl Eq for Item {}
+
+impl fmt::Debug for Item {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Item")
+            .field("kind", &self.kind)
+            .field("attrs", &self.attrs)
+            .field("text", &self.text)
+            .field("children", &self.children)
+            .field("origin", &self.origin)
+            .field("expansion", &self.expansion)
+            .finish_non_exhaustive()
     }
 }
 
@@ -127,13 +189,18 @@ impl fmt::Display for RenderFormat {
 /// A parsed file whose items keep their origins. Its [`Display`](fmt::Display)
 /// writes it back: untouched items byte for byte, edited items in canonical
 /// form.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Container fences take canonical lengths, each one colon longer than the
+/// longest fence it holds. An item that moved is re-indented to its new
+/// place; an item from another document writes its own source.
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct Document {
     /// The file it was parsed from.
     pub file: String,
     /// The top-level items.
     pub children: Vec<Item>,
+    snapshot: Option<Arc<Snapshot>>,
 }
 
 impl Document {
@@ -143,51 +210,57 @@ impl Document {
         Self {
             file: file.into(),
             children: Vec::new(),
+            snapshot: None,
         }
     }
 
-    /// Parses `text` of `file` into an editable document.
+    /// Parses the Markdown body `text` of `file` into an editable document;
+    /// frontmatter is the caller's to strip. Malformed directives are
+    /// problems, and the document holds what was read.
     #[must_use]
-    #[expect(
-        clippy::todo,
-        reason = "the document parser is ported from henia's markup package"
-    )]
     pub fn parse(file: &str, text: &str) -> Parsed<Self> {
-        let _ = (file, text);
-        todo!()
+        document::parse(file, text)
     }
 
-    /// Renders the document's directives in place.
+    /// Renders the document's directives in place: as normalized directive
+    /// syntax, XML elements or plain Markdown. Each block that changes is
+    /// replaced by a `text` item of its rendering.
     ///
     /// # Errors
-    /// Returns the [`Problem`] of a directive that cannot render in `format`.
-    #[expect(
-        clippy::todo,
-        reason = "rendering is ported from henia's markup package"
-    )]
+    /// Returns the first [`Problem`] of a block that cannot render; such
+    /// blocks keep their source while the others render.
     pub fn render(&mut self, format: RenderFormat) -> Result<(), Problem> {
-        let _ = format;
-        todo!()
+        render::render(self, format)
     }
 
-    /// The document with each directive named `name` replaced by its
-    /// content.
-    #[must_use]
-    #[expect(
-        clippy::todo,
-        reason = "unwrapping is ported from henia's markup package"
-    )]
-    pub fn unwrap_directive(&self, name: &str) -> Self {
-        let _ = name;
-        todo!()
+    /// Replaces each block directive named `name` with its content, and
+    /// returns a document of those contents in order.
+    #[must_use = "the returned document holds the unwrapped contents"]
+    pub fn unwrap_directive(&mut self, name: &str) -> Self {
+        render::unwrap(self, name)
+    }
+}
+
+impl PartialEq for Document {
+    fn eq(&self, other: &Self) -> bool {
+        self.file == other.file && self.children == other.children
+    }
+}
+
+impl Eq for Document {}
+
+impl fmt::Debug for Document {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Document")
+            .field("file", &self.file)
+            .field("children", &self.children)
+            .finish_non_exhaustive()
     }
 }
 
 impl fmt::Display for Document {
-    #[expect(clippy::todo, reason = "writing is ported from henia's markup package")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        f.write_str(&String::from_utf8_lossy(&write::document(self)))
     }
 }
 

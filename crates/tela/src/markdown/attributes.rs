@@ -158,7 +158,7 @@ pub(crate) fn skip_blanks(s: &[u8], i: usize) -> usize {
 
 /// The length of the unquoted value `s` opens with; multi-byte characters
 /// never end it.
-fn bare_length(s: &[u8]) -> usize {
+pub(crate) fn bare_length(s: &[u8]) -> usize {
     s.iter()
         .position(|&c| c <= b' ' || b"\"'=<>`{}[]".contains(&c))
         .unwrap_or(s.len())

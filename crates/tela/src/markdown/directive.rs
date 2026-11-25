@@ -27,6 +27,7 @@ pub(super) struct Container {
     pub(super) attrs: Attrs,
     pub(super) open: Span,
     pub(super) close: Option<Span>,
+    fence: usize,
     end_line: usize,
 }
 
@@ -37,14 +38,80 @@ pub(super) struct Leaf {
     pub(super) attrs: Attrs,
     pub(super) open: Span,
     pub(super) close: Span,
+    labeled: bool,
 }
 
-/// A `:name[label]` inline directive; its faults are relative to its start.
+/// A `:name[label]` inline directive; its label span and faults are
+/// relative to its start.
 #[derive(Debug)]
 pub(super) struct InlineDirective {
     pub(super) name: String,
     pub(super) attrs: Attrs,
+    label: Span,
     faults: Vec<Fault>,
+}
+
+/// Where a directive's delimiters sit in the parsed text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Delimiters {
+    /// The colons of the fence: none for an inline directive, two for a leaf.
+    pub(super) fence: usize,
+    /// The opening delimiter: up to the label, or the opening line.
+    pub(super) open: Span,
+    /// The closing delimiter: from the label, or the closing line; absent
+    /// while a container is unclosed.
+    pub(super) close: Option<Span>,
+    /// Whether a leaf or inline directive has a `[label]`.
+    pub(super) labeled: bool,
+}
+
+impl Delimiters {
+    /// The label of a leaf or inline directive, between its delimiters.
+    pub(super) fn label(&self) -> Span {
+        (self.open.1, self.close.map_or(self.open.1, |close| close.0))
+    }
+}
+
+/// The name and attributes of node `id`, if it is a directive.
+pub(super) fn signature(doc: &Document, id: NodeId) -> Option<(&str, &Attrs)> {
+    let node = doc.node(id);
+    if let Some(container) = node.cast::<Container>() {
+        return Some((&container.name, &container.attrs));
+    }
+    if let Some(leaf) = node.cast::<Leaf>() {
+        return Some((&leaf.name, &leaf.attrs));
+    }
+    node.cast::<InlineDirective>()
+        .map(|directive| (directive.name.as_str(), &directive.attrs))
+}
+
+/// The delimiters of node `id`, if it is a directive.
+pub(super) fn delimiters(doc: &Document, id: NodeId) -> Option<Delimiters> {
+    let node = doc.node(id);
+    if let Some(container) = node.cast::<Container>() {
+        return Some(Delimiters {
+            fence: container.fence,
+            open: container.open,
+            close: container.close,
+            labeled: false,
+        });
+    }
+    if let Some(leaf) = node.cast::<Leaf>() {
+        return Some(Delimiters {
+            fence: 2,
+            open: leaf.open,
+            close: Some(leaf.close),
+            labeled: leaf.labeled,
+        });
+    }
+    let directive = node.cast::<InlineDirective>()?;
+    let (start, end) = node.srcmap()?.get_byte_offsets();
+    Some(Delimiters {
+        fence: 0,
+        open: (start, start + directive.label.0),
+        close: Some((start + directive.label.1, end)),
+        labeled: true,
+    })
 }
 
 /// A failed inline directive: it consumes its `:` and carries its faults,
@@ -58,6 +125,11 @@ pub(super) fn add(md: &mut MarkdownIt) {
     md.block
         .add_rule::<DirectiveBlock>()
         .after_named("blockquote");
+    add_inline(md);
+}
+
+/// Adds inline directives alone, as directive labels are read.
+pub(super) fn add_inline(md: &mut MarkdownIt) {
     md.inline.add_rule::<DirectiveInline>();
 }
 
@@ -228,6 +300,7 @@ struct LeafLine {
     name: String,
     attrs: Attrs,
     label: Span,
+    labeled: bool,
     faults: Vec<Fault>,
 }
 
@@ -272,6 +345,7 @@ fn leaf_line(line: &[u8]) -> Result<LeafLine, Vec<Fault>> {
         name,
         attrs,
         label,
+        labeled,
         faults: faults.into_iter().map(|f| f.shifted(attr_start)).collect(),
     })
 }
@@ -304,6 +378,7 @@ impl DirectiveBlock {
             attrs: leaf.attrs,
             open: (base, base + leaf.label.0),
             close: (base + leaf.label.1, base + line.len()),
+            labeled: leaf.labeled,
         });
         if leaf.label.1 > leaf.label.0 {
             let content = String::from_utf8_lossy(&line[leaf.label.0..leaf.label.1]).into_owned();
@@ -324,6 +399,7 @@ impl DirectiveBlock {
                 attrs: opening.attrs.clone(),
                 open,
                 close: None,
+                fence: opening.fence,
                 end_line: 0,
             });
             let outer = std::mem::replace(&mut state.node, node);
@@ -525,6 +601,7 @@ impl InlineRule for DirectiveInline {
         let node = state.document.create_node(InlineDirective {
             name,
             attrs,
+            label: (start, close),
             faults,
         });
         for child in children {

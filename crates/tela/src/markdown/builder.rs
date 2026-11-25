@@ -21,7 +21,7 @@ use markdown_it::plugins::extra::tables::{Table, TableBody, TableCell, TableHead
 use markdown_it::plugins::html::html_block::HtmlBlock;
 use markdown_it::plugins::html::html_inline::HtmlInline;
 
-use super::directive::{Container, InlineDirective, Leaf, Span};
+use super::directive::{self, Container, Delimiters, InlineDirective, Leaf, Span};
 
 /// One node of the tree under construction, positioned in the parsed text.
 #[derive(Debug, Default)]
@@ -35,6 +35,10 @@ pub(super) struct Element {
     pub(super) end_line: usize,
     pub(super) column: usize,
     pub(super) children: Vec<Element>,
+    /// A directive's delimiters.
+    pub(super) delimiters: Option<Delimiters>,
+    /// A link's or image's whole source, from its opening bracket.
+    pub(super) link: Option<Span>,
 }
 
 impl Element {
@@ -72,13 +76,15 @@ enum Item {
     Tight(Vec<NodeId>),
 }
 
-/// Builds the element tree of `doc`, whose source is the parsed text.
-pub(super) fn build(doc: &Document) -> Element {
+/// Builds the element tree of `doc`, whose source is the parsed text;
+/// headings open sections inside directives, and at the top when
+/// `sectioned` is set.
+pub(super) fn build(doc: &Document, sectioned: bool) -> Element {
     let mut builder = Builder::new(doc);
     let mut root = Element::new("file");
     root.span((0, builder.src.len()));
     let items = builder.items(doc.root());
-    builder.blocks(&mut root, items, true);
+    builder.blocks(&mut root, items, sectioned);
     builder.finish(&mut root);
     root
 }
@@ -392,6 +398,7 @@ impl<'a> Builder<'a> {
             e.span((leaf.open.0, leaf.open.1.max(leaf.close.1)));
             self.child_inlines(&mut e, id);
         }
+        e.delimiters = directive::delimiters(self.doc, id);
         Some(e)
     }
 
@@ -548,6 +555,7 @@ impl<'a> Builder<'a> {
                 let inner = (s + 1, t.saturating_sub(1).max(s + 1));
                 e = e.attr("url", self.text(inner));
                 e.span(inner);
+                e.link = Some((s, t));
             }
             parent.children.push(e);
             return;
@@ -572,6 +580,7 @@ impl<'a> Builder<'a> {
             if let Some(span) = source_span(self.doc, id) {
                 e.span(span);
             }
+            e.delimiters = directive::delimiters(self.doc, id);
             self.child_inlines(&mut e, id);
             parent.children.push(e);
             return;
@@ -586,6 +595,7 @@ impl<'a> Builder<'a> {
         if let Some(span) = acc {
             e.span(span);
         }
+        e.link = source_span(self.doc, id);
         self.child_inlines(&mut e, id);
         parent.children.push(e);
     }
