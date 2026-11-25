@@ -13,7 +13,7 @@ name = "tela"
 path = "src/main.rs"
 
 [dependencies]
-tela = { path = "../tela", version = "0.0.0" }
+tela = { path = "../tela", version = "0.0.0", features = ["semantic"] }
 
 [lints]
 workspace = true

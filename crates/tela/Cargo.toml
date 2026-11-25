@@ -8,8 +8,21 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+semantic = [
+  "dep:safetensors",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:unicode-normalization",
+]
+
 [dependencies]
+safetensors = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
+unicode-normalization = { workspace = true, optional = true }
+unicode-properties.workspace = true
 
 [lints]
 workspace = true
