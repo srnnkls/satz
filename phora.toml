@@ -1,0 +1,31 @@
+[sources.loqui-common]
+repo = "srnnkls/loqui"
+root = "blueprints/common"
+rev = "c33e774f73ddfad590182f6cd6c3ba138264b8ba"
+
+[sources.loqui-rust]
+repo = "srnnkls/loqui"
+root = "blueprints/rust"
+rev = "c33e774f73ddfad590182f6cd6c3ba138264b8ba"
+
+[targets.loqui]
+path = "."
+
+[targets.loqui.sources.loqui-common]
+collapse = false
+take = [
+  { "gate.pkl" = ".loqui/hk/gate.pkl" },
+  { "mise.toml" = ".config/mise/conf.d/loqui.toml" },
+]
+
+[targets.loqui.sources.loqui-rust]
+collapse = false
+take = [
+  { "hk.pkl" = ".loqui/hk/rust.pkl" },
+  { "lints.toml" = ".loqui/rust/lints.toml" },
+  { "rustfmt.toml" = "rustfmt.toml" },
+  { "clippy.toml" = "clippy.toml" },
+]
+
+[targets.loqui.hooks]
+on_change = ["mise run loqui merge-lints"]

@@ -12,30 +12,36 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.release.outputs['crates/tela-cli--release_created'] }}
+      tag_name: ${{ steps.release.outputs['crates/tela-cli--tag_name'] }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v4
 
-  goreleaser:
+  binaries:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
+    name: binaries (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: rustup toolchain install && rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked -p tela-cli --target ${{ matrix.target }}
+      - name: package
+        run: |
+          archive="tela-${TAG}-${{ matrix.target }}.tar.gz"
+          tar czf "$archive" -C "target/${{ matrix.target }}/release" tela -C "$GITHUB_WORKSPACE" LICENSE README.md
+          gh release upload "$TAG" "$archive" --clobber

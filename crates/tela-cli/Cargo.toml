@@ -1,0 +1,19 @@
+[package]
+name = "tela-cli"
+description = "Command-line interface for tela"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "tela"
+path = "src/main.rs"
+
+[dependencies]
+tela = { path = "../tela", version = "0.0.0" }
+
+[lints]
+workspace = true

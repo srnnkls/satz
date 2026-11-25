@@ -8,12 +8,18 @@
 ## About
 
 tela queries and lints text as structure. A frontend parses a format into a
-tree of nodes, hq patterns match that tree, and lint rules written in hq
+tree of nodes, tq patterns match that tree, and lint rules written in tq
 report what they find. The core knows no markup: Markdown and plain text are
 its first frontends.
 
-tela is a Go library and a CLI. [Henia](https://github.com/srnnkls/henia)
+tela is a Rust library and a CLI. [Henia](https://github.com/srnnkls/henia)
 builds on it to lint agent skills.
+
+## Development
+
+```sh
+mise run loqui:check   # rustfmt, lint table, Clippy, tests, cargo deny
+```
 
 ## Status
 

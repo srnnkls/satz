@@ -1,25 +1,9 @@
 [tools]
-go = "1.27.1"
+cargo-deny = "0.22.0"
+"github:facebookincubator/scrut" = "0.4.3"
 
-[tasks.lint]
-description = "Run golangci-lint and reject suppression directives"
-run = [
-  "go tool golangci-lint run ./...",
-  "! grep -rn --include='*.go' '//nolint' .",
-]
+[env]
+CARGO_BUILD_WARNINGS = "deny"
 
-[tasks.fmt]
-description = "Format with gofumpt and goimports"
-run = "go tool golangci-lint fmt ./..."
-
-[tasks.fix]
-description = "Preview go fix modernizations; fails when any are pending"
-run = "test -z \"$(go fix -diff ./...)\""
-
-[tasks.test]
-description = "Run unit tests with the race detector"
-run = "go test -race ./..."
-
-[tasks.check]
-description = "Lint, preview fixes and test"
-depends = ["lint", "fix", "test"]
+[tasks.loqui]
+file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=c33e774f73ddfad590182f6cd6c3ba138264b8ba"

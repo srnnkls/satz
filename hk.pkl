@@ -1,0 +1,14 @@
+amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+import ".loqui/hk/gate.pkl"
+import ".loqui/hk/rust.pkl"
+
+local cargoDeny = new Step {
+  glob = List("**/Cargo.toml", "Cargo.lock", "deny.toml")
+  check = "cargo deny --all-features check"
+}
+
+hooks = gate.standard(
+  new Mapping<String, Step> { ...rust.fast },
+  new Mapping<String, Step> { ...rust.heavy; ["cargo-deny"] = cargoDeny },
+  new Mapping<String, Step> { ...rust.fixers }
+)
