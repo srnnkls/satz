@@ -38,4 +38,6 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v4
+        with:
+          experimental: true
       - run: mise run loqui:check
