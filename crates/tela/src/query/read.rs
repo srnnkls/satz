@@ -778,7 +778,7 @@ pub(super) fn unexpected(token: &Token, want: &str) -> Error {
 }
 
 /// A hint naming the candidate closest to `word`.
-pub(super) fn suggest(word: &str, candidates: &[&str]) -> String {
+pub(crate) fn suggest(word: &str, candidates: &[&str]) -> String {
     let mut best = None;
     let mut distance = 3;
     for &candidate in candidates {

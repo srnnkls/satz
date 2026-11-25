@@ -1020,7 +1020,7 @@ fn submatches(
 }
 
 /// A node's line count: a file's lines of text, or its span of lines.
-fn lines(node: &crate::tree::Node) -> usize {
+pub(crate) fn lines(node: &crate::tree::Node) -> usize {
     if node.kind == "file" {
         let body = node.text.strip_suffix('\n').unwrap_or(&node.text);
         return if node.text.is_empty() {

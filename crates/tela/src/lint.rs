@@ -1,14 +1,27 @@
 //! The lint engine: rule modules from ordered layers, compiled into a plan
 //! that runs over one corpus and returns tela's own findings.
+//!
+//! A module is a Markdown file: its frontmatter sets `params` and `data`
+//! for its rules, its `hq` code blocks hold `(rule …)`, `(define …)` and
+//! `(import …)` forms, and `md` code blocks under a rule's `### Matches` or
+//! `### Passes` heading are the rule's examples. tela's std modules are
+//! `std/duplicates`, `std/similarity`, `std/structure` and `std/links`.
+
+mod compile;
+mod header;
+mod load;
+mod run;
 
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
-use crate::query::{self, Environment, Table, Value};
-use crate::tree::{Origin, Tree};
+use self::compile::Compiled;
+use crate::query::{self, CORPUS, Environment, Schema, Table, Value};
+use crate::tree::{Node, Origin, Tree, TreeError};
 
 /// A rule id: non-empty, without whitespace, such as `duplicate-heading`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -376,10 +389,12 @@ impl Default for Labels {
     }
 }
 
-/// What the calling program declares: its extra module frontmatter keys and
-/// its labels.
+/// What the calling program declares: the schema its trees follow, its
+/// extra module frontmatter keys and its labels.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Spec {
+    /// The schema rule queries are read against.
+    pub schema: Schema,
     /// Module frontmatter keys beyond tela's own, returned raw per rule.
     pub meta_keys: BTreeSet<String>,
     /// Source labels.
@@ -503,7 +518,8 @@ pub struct RuleMeta {
     pub module: String,
     /// Its effective severity.
     pub severity: Severity,
-    /// Raw values of the caller's declared meta keys.
+    /// Raw values of the caller's declared meta keys: a key's scalar value,
+    /// or its entry for this rule when the module sets a table by rule id.
     pub meta: BTreeMap<String, String>,
 }
 
@@ -530,6 +546,8 @@ pub struct Example {
     pub expect: Expect,
     /// The example's Markdown.
     pub text: String,
+    /// Params the example sets, typed as the rule declares them.
+    pub params: BTreeMap<String, Value>,
     /// Data tables the example sets.
     pub data: BTreeMap<String, Table>,
 }
@@ -577,12 +595,42 @@ pub struct Corpus {
     pub environment: Environment,
 }
 
+impl Corpus {
+    /// The frontends' `files` grafted in order under a [`CORPUS`] root.
+    ///
+    /// # Errors
+    /// Returns [`TreeError::Full`] when the files hold more nodes than a
+    /// tree can.
+    pub fn new(
+        files: impl IntoIterator<Item = Tree>,
+        environment: Environment,
+    ) -> Result<Self, TreeError> {
+        let root = Origin::named(&Arc::from(CORPUS), None);
+        let mut tree = Tree::new(Node::new(CORPUS, root));
+        let id = tree.root().id();
+        for file in files {
+            tree.graft(id, file)?;
+        }
+        Ok(Self { tree, environment })
+    }
+}
+
 /// Why compiling failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum CompileError {
     /// Two layers define one module name.
     #[error("module {0:?} is defined twice")]
     DuplicateModule(String),
+    /// A module is not valid Markdown with YAML frontmatter, or a
+    /// frontmatter value has the wrong shape.
+    #[error("module {module:?}: {message}")]
+    Malformed {
+        /// The module.
+        module: String,
+        /// What is wrong.
+        message: String,
+    },
     /// A module's frontmatter has a key neither tela nor the caller declares.
     #[error("module {module:?}: unknown frontmatter key {key:?}")]
     UnknownMetaKey {
@@ -591,41 +639,109 @@ pub enum CompileError {
         /// The key.
         key: String,
     },
-    /// A rule's query did not read.
+    /// A module's `hq` blocks did not read; the error's offset is within
+    /// the block holding it.
+    #[error("module {module:?}, line {line}")]
+    Read {
+        /// The module.
+        module: String,
+        /// The module line of the error.
+        line: u32,
+        /// The reader's error.
+        source: query::Error,
+    },
+    /// An inline rule did not read; the error's offset is within its query.
     #[error("module {module:?}, rule {rule}")]
     Query {
-        /// The module.
+        /// The inline rules' source label.
         module: String,
         /// The rule.
         rule: RuleId,
         /// The reader's error.
         source: query::Error,
     },
+    /// A rule reports a `:score` without a known `:method`.
+    #[error("module {module:?}, rule {rule}: :score needs :method jaccard, containment or cosine")]
+    Method {
+        /// The module.
+        module: String,
+        /// The rule.
+        rule: RuleId,
+    },
+    /// Two modules, or a module and the inline rules, define one rule id.
+    #[error("rule {rule} is defined in {first} and {second}")]
+    DuplicateRule {
+        /// The rule.
+        rule: RuleId,
+        /// The module defining it first.
+        first: String,
+        /// The module defining it again.
+        second: String,
+    },
+    /// Settings configure or disable a rule no module defines.
+    #[error("no rule {rule}; {hint}")]
+    UnknownRule {
+        /// The rule.
+        rule: RuleId,
+        /// The nearest rule ids.
+        hint: String,
+    },
+    /// Settings or an example set a param or data table the rule lacks.
+    #[error("rule {rule} has no param or data {key:?}; {hint}")]
+    UnknownSetting {
+        /// The rule.
+        rule: RuleId,
+        /// The param or table.
+        key: String,
+        /// The nearest names.
+        hint: String,
+    },
+    /// A param's value does not have the type the rule gives it.
+    #[error("rule {rule}: param {param} must be {expected}")]
+    ParamType {
+        /// The rule.
+        rule: RuleId,
+        /// The param.
+        param: String,
+        /// The type, `a number` or `text`.
+        expected: String,
+    },
+    /// A data table does not have the shape the rule gives it.
+    #[error("rule {rule}: data {table} must be {expected}")]
+    TableShape {
+        /// The rule.
+        rule: RuleId,
+        /// The table.
+        table: String,
+        /// The shape, `a table` or `a list`.
+        expected: String,
+    },
+}
+
+/// A rule whose query failed while a plan ran.
+#[derive(Debug, thiserror::Error)]
+#[error("rule {rule} failed")]
+pub struct RunError {
+    /// The rule.
+    pub rule: RuleId,
+    /// The query's failure.
+    #[source]
+    pub source: query::RunError,
 }
 
 /// Rules compiled from a configuration.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Plan {
     rules: Vec<RuleMeta>,
     examples: Vec<Example>,
+    compiled: Vec<Compiled>,
+    disabled: BTreeSet<RuleId>,
+    disable_key: String,
+    semantic: bool,
 }
 
 impl Plan {
-    /// Compiles the layers' modules, tela's std modules and the inline rules.
-    ///
-    /// # Errors
-    /// Returns [`CompileError`] when a module is defined twice, declares an
-    /// unknown frontmatter key, or holds a query that does not read.
-    #[expect(
-        clippy::todo,
-        reason = "the compiler is ported from henia's lint package"
-    )]
-    pub fn compile(config: &Config) -> Result<Self, CompileError> {
-        let _ = config;
-        todo!()
-    }
-
-    /// The compiled rules.
+    /// The compiled rules, disabled ones included.
     #[must_use]
     pub fn rules(&self) -> &[RuleMeta] {
         &self.rules
@@ -636,151 +752,7 @@ impl Plan {
     pub fn examples(&self) -> &[Example] {
         &self.examples
     }
-
-    /// Runs the selected rules over `corpus`.
-    ///
-    /// # Errors
-    /// Returns [`query::RunError`] when a rule's query fails to match.
-    #[expect(
-        clippy::todo,
-        reason = "the runner is ported from henia's lint package"
-    )]
-    pub fn run(
-        &self,
-        corpus: &Corpus,
-        rules: &Selection,
-    ) -> Result<Vec<Diagnostic>, query::RunError> {
-        let _ = (corpus, rules);
-        todo!()
-    }
-
-    /// Runs one example against a corpus the caller built from it.
-    #[must_use]
-    #[expect(
-        clippy::todo,
-        reason = "the example runner is ported from henia's lint package"
-    )]
-    pub fn run_example(&self, example: &Example, corpus: &Corpus) -> Outcome {
-        let _ = (example, corpus);
-        todo!()
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn id(id: &str) -> RuleId {
-        RuleId::new(id).unwrap()
-    }
-
-    fn layer(package: &str) -> Layer {
-        Layer::from_files(Some(package.to_owned()), vec![]).unwrap()
-    }
-
-    #[test]
-    fn rule_ids_reject_empty_and_spaced_text() {
-        assert!(RuleId::new("").is_err());
-        assert!(RuleId::new("two words").is_err());
-        assert_eq!(
-            "duplicate-heading".parse::<RuleId>().map(|r| r.to_string()),
-            Ok("duplicate-heading".to_owned())
-        );
-    }
-
-    #[test]
-    fn severities_round_trip_their_names() {
-        for severity in [Severity::Error, Severity::Warning] {
-            assert_eq!(severity.to_string().parse(), Ok(severity));
-        }
-        assert!("info".parse::<Severity>().is_err());
-    }
-
-    #[test]
-    fn two_layers_of_one_package_are_rejected() {
-        let result = Config::new(
-            vec![layer("team"), layer("team")],
-            Spec::default(),
-            Settings::default(),
-        );
-        assert_eq!(
-            result,
-            Err(ConfigError::DuplicatePackage("team".to_owned()))
-        );
-    }
-
-    #[test]
-    fn semantic_rules_need_a_model() {
-        let settings = Settings {
-            semantic: Semantic {
-                enabled: true,
-                model_path: None,
-            },
-            ..Settings::default()
-        };
-        assert_eq!(
-            Config::new(vec![], Spec::default(), settings),
-            Err(ConfigError::MissingModel)
-        );
-    }
-
-    #[test]
-    fn layers_reject_duplicate_files() {
-        let file = ModuleFile {
-            path: "headings.md".to_owned(),
-            text: String::new(),
-        };
-        assert!(matches!(
-            Layer::from_files(None, vec![file.clone(), file]),
-            Err(LayerError::DuplicateFile(path)) if path == "headings.md"
-        ));
-    }
-
-    #[test]
-    fn read_dir_collects_markdown_with_relative_paths() {
-        let dir = std::env::temp_dir().join(format!("tela-layer-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("team")).unwrap();
-        std::fs::write(dir.join("team/headings.md"), "# Headings\n").unwrap();
-        std::fs::write(dir.join("notes.txt"), "skip").unwrap();
-        let layer = Layer::read_dir(None, &dir).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(layer.files().len(), 1);
-        assert_eq!(layer.files()[0].path, "team/headings.md");
-    }
-
-    #[test]
-    fn diagnostics_point_at_origins() {
-        let at = Origin::new(
-            "a.md",
-            Some(crate::tree::Position::new(0..5, 14..=14, 1).unwrap()),
-        )
-        .unwrap();
-        let d = Diagnostic::new(
-            id("duplicate-heading"),
-            at,
-            Severity::Warning,
-            "heading repeated",
-        );
-        assert_eq!(
-            (d.rule().as_str(), d.origin().line()),
-            ("duplicate-heading", Some(14))
-        );
-    }
-
-    #[test]
-    fn scores_carry_their_method_data() {
-        let score = Score::Cosine {
-            value: 0.98,
-            model: "potion-base-2M".to_owned(),
-        };
-        assert!((score.value() - 0.98).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn selections_filter_rule_ids() {
-        let only = Selection::Only(BTreeSet::from([id("a")]));
-        assert!(only.includes("a"));
-        assert!(!only.includes("b"));
-        assert!(Selection::All.includes("b"));
-    }
-}
+mod tests;

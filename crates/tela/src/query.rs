@@ -31,6 +31,9 @@ use std::time::SystemTime;
 
 pub use module::{Define, Defines, Module, Placeholder, Rule, Sigil, placeholders};
 
+pub(crate) use self::matcher::lines;
+pub(crate) use self::read::suggest;
+
 use self::group::Group;
 use self::pattern::{Check, Operand, Pattern, Relate};
 use self::sort::SortKey;
@@ -196,6 +199,12 @@ impl Schema {
     }
 }
 
+impl Default for Schema {
+    fn default() -> Self {
+        Self::core()
+    }
+}
+
 /// A query value: text or a number.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -311,6 +320,13 @@ impl Error {
 
     pub(crate) fn syntax(offset: usize, message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Syntax, offset, message)
+    }
+
+    /// The error moved to `offset`, as when its source is a slice of a
+    /// larger text.
+    pub(crate) fn at(mut self, offset: usize) -> Self {
+        self.offset = offset;
+        self
     }
 
     /// The error with a suggested fix.
@@ -435,6 +451,13 @@ impl Query {
             Some(group) => group.keys.iter().filter_map(|k| k.input.var()).collect(),
             None => self.sorts.iter().filter_map(SortKey::var).collect(),
         }
+    }
+
+    /// Whether the query compares texts under a semantic model, through
+    /// `(similar …)`.
+    #[must_use]
+    pub fn is_semantic(&self) -> bool {
+        self.semantic
     }
 
     /// The `$params` the query reads, true where it compares the param as a
