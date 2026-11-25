@@ -39,3 +39,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v4
       - run: mise run loqui:check
+
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mise-action@v4
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/tela/models
+          key: model-potion-base-2M-389b9f64be5aa4ae7a6bc6fe95ef20ce485ae5da
+      - run: mise run model
+      - run: mise run parity
+      - run: mise run cli
