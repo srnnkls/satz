@@ -12,7 +12,9 @@ authors.workspace = true
 semantic = ["dep:model2vec-rs"]
 
 [dependencies]
+markdown-it-rs.workspace = true
 model2vec-rs = { workspace = true, optional = true }
+saphyr-parser.workspace = true
 thiserror.workspace = true
 unicode-properties.workspace = true
 

@@ -4,6 +4,7 @@
 pub mod frontend;
 pub mod lint;
 pub mod markdown;
+pub mod plain;
 pub mod query;
 pub mod similarity;
 pub mod tree;

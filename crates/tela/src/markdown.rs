@@ -1,9 +1,19 @@
-//! The Markdown frontend's document side: frontmatter and the
-//! directive-aware document editor.
+//! The Markdown frontend, which reads Markdown with tables, raw HTML,
+//! directives and YAML frontmatter, and the directive-aware document editor.
+
+mod attributes;
+mod builder;
+mod directive;
+mod frontmatter;
+mod parse;
+mod yaml;
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
+
+pub use frontmatter::{Entry, Frontmatter};
+pub use parse::Markdown;
 
 use crate::tree::Origin;
 
@@ -25,41 +35,6 @@ pub struct Parsed<T> {
     pub value: T,
     /// Problems in source order.
     pub problems: Vec<Problem>,
-}
-
-/// One frontmatter key, or one element of a list value.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
-    /// The key.
-    pub key: String,
-    /// The scalar value as written.
-    pub value: String,
-    /// The YAML short tag, such as `!!str` or `!!int`.
-    pub tag: String,
-    /// The element's index when the value is a list.
-    pub index: Option<usize>,
-}
-
-/// A file's leading YAML block.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Frontmatter {
-    /// The entries in source order.
-    pub entries: Vec<Entry>,
-    /// The lines the block spans, fences included; body lines shift by this.
-    pub lines: u32,
-}
-
-impl Frontmatter {
-    /// Splits the frontmatter off `text` of `file`, if it opens with one.
-    #[must_use]
-    #[expect(
-        clippy::todo,
-        reason = "the frontmatter reader is ported with the Markdown frontend"
-    )]
-    pub fn parse(file: &str, text: &str) -> Parsed<Option<Self>> {
-        let _ = (file, text);
-        todo!()
-    }
 }
 
 /// One expansion step: the directive that invoked a component and the

@@ -10,7 +10,9 @@ repository = "https://github.com/srnnkls/tela"
 authors = ["Sören Nikolaus <soeren@code17.io>"]
 
 [workspace.dependencies]
+markdown-it-rs = { git = "https://github.com/GSGFs7/markdown-it-rs", rev = "fffca16c2c231f25e9f37d1997c7a7e68576f107", version = "0.7.0", default-features = false, features = ["sourcemap"] }
 model2vec-rs = { version = "0.5.1", default-features = false, features = ["fancy-regex", "local-only"] }
+saphyr-parser = "0.4.1"
 thiserror = "2.0.21"
 unicode-properties = { version = "0.1.5", default-features = false, features = ["general-category"] }
 

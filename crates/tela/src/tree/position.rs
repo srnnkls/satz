@@ -131,6 +131,17 @@ impl Origin {
         Ok(Self { file, position })
     }
 
+    /// An origin in `file`, or in `-` when `file` is empty, as for text a
+    /// frontend parses without a name.
+    pub(crate) fn named(file: &Arc<str>, position: Option<Position>) -> Self {
+        let file = if file.is_empty() {
+            Arc::from("-")
+        } else {
+            Arc::clone(file)
+        };
+        Self { file, position }
+    }
+
     /// The file, as the caller named it; cheap to clone onto sibling nodes.
     #[must_use]
     pub fn file(&self) -> &Arc<str> {
