@@ -6,4 +6,4 @@ cargo-deny = "0.22.0"
 CARGO_BUILD_WARNINGS = "deny"
 
 [tasks.loqui]
-file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=c33e774f73ddfad590182f6cd6c3ba138264b8ba"
+file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=5298b394357d9897a5db465314472a933f0d5d07"

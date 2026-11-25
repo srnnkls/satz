@@ -1,12 +1,12 @@
 [sources.loqui-common]
 repo = "srnnkls/loqui"
 root = "blueprints/common"
-rev = "c33e774f73ddfad590182f6cd6c3ba138264b8ba"
+rev = "5298b394357d9897a5db465314472a933f0d5d07"
 
 [sources.loqui-rust]
 repo = "srnnkls/loqui"
 root = "blueprints/rust"
-rev = "c33e774f73ddfad590182f6cd6c3ba138264b8ba"
+rev = "5298b394357d9897a5db465314472a933f0d5d07"
 
 [targets.loqui]
 path = "."
