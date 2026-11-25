@@ -6,7 +6,7 @@ unmaintained = "workspace"
 yanked = "deny"
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Zlib"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
 confidence-threshold = 0.9
 
 [licenses.private]

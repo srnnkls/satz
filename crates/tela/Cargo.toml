@@ -9,19 +9,11 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-semantic = [
-  "dep:safetensors",
-  "dep:serde",
-  "dep:serde_json",
-  "dep:unicode-normalization",
-]
+semantic = ["dep:model2vec-rs"]
 
 [dependencies]
-safetensors = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+model2vec-rs = { workspace = true, optional = true }
 thiserror.workspace = true
-unicode-normalization = { workspace = true, optional = true }
 unicode-properties.workspace = true
 
 [lints]
