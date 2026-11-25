@@ -162,18 +162,16 @@ impl<'a> Loader<'a> {
         if let Some(problem) = tree.problems().next() {
             return Err(malformed(problem.node().text.clone()));
         }
-        let header = match Frontmatter::parse(name, text).value {
-            Some(head) => {
-                Header::read(&head.text, self.meta_keys).map_err(|fault| match fault {
-                    Fault::UnknownKey(key) => CompileError::UnknownMetaKey {
-                        module: name.to_owned(),
-                        key,
-                    },
-                    Fault::Invalid(message) => malformed(message),
-                })?
-            }
-            None => Header::default(),
-        };
+        let root = Frontmatter::parse(name, text)
+            .value
+            .and_then(|head| head.root);
+        let header = Header::read(root.as_ref(), self.meta_keys).map_err(|fault| match fault {
+            Fault::UnknownKey(key) => CompileError::UnknownMetaKey {
+                module: name.to_owned(),
+                key,
+            },
+            Fault::Invalid(message) => malformed(message),
+        })?;
         let (source, blocks) = hq_source(&tree);
         let mut samples = samples(&tree);
         let schema = self.schema;

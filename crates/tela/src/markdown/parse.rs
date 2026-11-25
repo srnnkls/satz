@@ -149,7 +149,7 @@ fn append_frontmatter(
     let Ok(id) = tree.append(root, node) else {
         return;
     };
-    for entry in &head.entries {
+    for entry in head.entries() {
         let position = Position::new(
             line_span(text, entry.line),
             entry.line..=entry.line,

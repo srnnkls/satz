@@ -33,8 +33,8 @@ pub struct Frontmatter {
     /// The top-level keys whose values are strings, booleans or numbers,
     /// with the values as written by henia.
     pub attrs: BTreeMap<String, String>,
-    /// The scalar entries in source order.
-    pub entries: Vec<Entry>,
+    /// The YAML document, if the block holds one.
+    pub root: Option<YamlNode>,
     /// The lines the block spans, fences and the blank line after them
     /// included; body lines shift by this.
     pub lines: u32,
@@ -69,20 +69,28 @@ impl Frontmatter {
             Ok(document) => document,
             Err(message) => return problem(format!("parse frontmatter: {message}")),
         };
-        let mut entries = Vec::new();
-        if let Some(root) = &document.root {
-            walk(&mut entries, "", None, root, root.mark);
-        }
         Parsed {
             value: Some(Self {
                 text: header.trim().to_owned(),
                 attrs: document.attrs,
-                entries,
+                root: document.root,
                 lines: line_count(&text[..body]),
                 body,
             }),
             problems: Vec::new(),
         }
+    }
+
+    /// The scalar entries in source order: a mapping extends the key path,
+    /// a sequence numbers its elements, and every other node is an entry
+    /// at the key or element that leads to it.
+    #[must_use]
+    pub fn entries(&self) -> Vec<Entry> {
+        let mut entries = Vec::new();
+        if let Some(root) = &self.root {
+            walk(&mut entries, "", None, root, root);
+        }
+        entries
     }
 }
 
@@ -131,64 +139,61 @@ fn fence(text: &str) -> Option<Fence<'_>> {
     }
 }
 
-/// A position in the header: its line, counted from the opening fence, and
-/// its 1-based column.
-#[derive(Debug, Clone, Copy)]
-struct Mark {
-    line: u32,
-    column: u32,
+/// A node of the frontmatter's YAML.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YamlNode {
+    /// What the node holds.
+    pub value: YamlValue,
+    /// The YAML short tag: a scalar's resolved tag, such as `!!str` or
+    /// `!!int`; a collection's `!!seq` or `!!map` unless tagged otherwise;
+    /// an alias's the tag of the node its anchor names.
+    pub tag: String,
+    /// The source line, 1-based and counted from the opening fence.
+    pub line: u32,
+    /// The column there, 1-based.
+    pub column: u32,
 }
 
-impl Mark {
-    fn of(span: Span) -> Self {
-        let number = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-        Self {
-            line: number(span.start.line()).saturating_add(1),
-            column: number(span.start.col()).saturating_add(1),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Kind {
+/// What a [`YamlNode`] holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum YamlValue {
+    /// A scalar as written.
     Scalar(String),
-    Sequence(Vec<Node>),
-    Mapping(Vec<(Node, Node)>),
-    /// An alias by its anchor name, with the scalar it names, if any.
+    /// A sequence's elements in source order.
+    Sequence(Vec<YamlNode>),
+    /// A mapping's key-value pairs in source order.
+    Mapping(Vec<(YamlNode, YamlNode)>),
+    /// An alias.
     Alias {
+        /// The anchor name.
         name: String,
+        /// The scalar the anchor names, if it names one.
         scalar: Option<String>,
     },
 }
 
-#[derive(Debug)]
-struct Node {
-    kind: Kind,
-    tag: String,
-    mark: Mark,
-}
-
-impl Node {
-    fn value(&self) -> &str {
-        match &self.kind {
-            Kind::Scalar(value) | Kind::Alias { name: value, .. } => value,
-            Kind::Sequence(_) | Kind::Mapping(_) => "",
+impl YamlNode {
+    /// A scalar's value or an alias's anchor name; empty for a collection.
+    fn text(&self) -> &str {
+        match &self.value {
+            YamlValue::Scalar(value) | YamlValue::Alias { name: value, .. } => value,
+            YamlValue::Sequence(_) | YamlValue::Mapping(_) => "",
         }
     }
 
     /// The scalar the node holds or names.
     fn scalar(&self) -> Option<&str> {
-        match &self.kind {
-            Kind::Scalar(value) => Some(value),
-            Kind::Alias { scalar, .. } => scalar.as_deref(),
-            Kind::Sequence(_) | Kind::Mapping(_) => None,
+        match &self.value {
+            YamlValue::Scalar(value) => Some(value),
+            YamlValue::Alias { scalar, .. } => scalar.as_deref(),
+            YamlValue::Sequence(_) | YamlValue::Mapping(_) => None,
         }
     }
 }
 
 /// The first YAML document of a header, read as henia reads it into a map.
 struct Document {
-    root: Option<Node>,
+    root: Option<YamlNode>,
     attrs: BTreeMap<String, String>,
 }
 
@@ -203,13 +208,14 @@ impl Document {
         let mut errors = Vec::new();
         let mut attrs = BTreeMap::new();
         if let Some(root) = &root {
-            match &root.kind {
-                Kind::Mapping(pairs) => {
+            match &root.value {
+                YamlValue::Mapping(pairs) => {
                     unique_keys(root, &mut errors);
                     if errors.is_empty() {
                         for (key, value) in pairs {
                             decode(value)?;
-                            if let (Kind::Scalar(name), Some(content)) = (&key.kind, value.scalar())
+                            if let (YamlValue::Scalar(name), Some(content)) =
+                                (&key.value, value.scalar())
                                 && let Some(shown) = scalar(&value.tag, content)?.display()
                             {
                                 attrs.insert(name.clone(), shown);
@@ -217,8 +223,8 @@ impl Document {
                         }
                     }
                 }
-                Kind::Scalar(_) if root.tag == "!!null" => {}
-                Kind::Scalar(value) | Kind::Alias { name: value, .. } => {
+                YamlValue::Scalar(_) if root.tag == "!!null" => {}
+                YamlValue::Scalar(value) | YamlValue::Alias { name: value, .. } => {
                     let value = if value.len() > 10 {
                         format!(" `{}...`", value.chars().take(7).collect::<String>())
                     } else {
@@ -226,13 +232,13 @@ impl Document {
                     };
                     errors.push(format!(
                         "line {}: cannot unmarshal {}{value} into map[string]interface {{}}",
-                        root.mark.line - 1,
+                        root.line - 1,
                         root.tag
                     ));
                 }
-                Kind::Sequence(_) => errors.push(format!(
+                YamlValue::Sequence(_) => errors.push(format!(
                     "line {}: cannot unmarshal !!seq into map[string]interface {{}}",
-                    root.mark.line - 1
+                    root.line - 1
                 )),
             }
         }
@@ -247,20 +253,20 @@ impl Document {
 }
 
 /// yaml.v3's check that no mapping repeats a key, depth first.
-fn unique_keys(node: &Node, errors: &mut Vec<String>) {
-    match &node.kind {
-        Kind::Mapping(pairs) => {
+fn unique_keys(node: &YamlNode, errors: &mut Vec<String>) {
+    match &node.value {
+        YamlValue::Mapping(pairs) => {
             let before = errors.len();
             for (i, (first, _)) in pairs.iter().enumerate() {
                 for (later, _) in &pairs[i + 1..] {
-                    if std::mem::discriminant(&first.kind) == std::mem::discriminant(&later.kind)
-                        && first.value() == later.value()
+                    if std::mem::discriminant(&first.value) == std::mem::discriminant(&later.value)
+                        && first.text() == later.text()
                     {
                         errors.push(format!(
                             "line {}: mapping key {:?} already defined at line {}",
-                            later.mark.line - 1,
-                            later.value(),
-                            first.mark.line - 1
+                            later.line - 1,
+                            later.text(),
+                            first.line - 1
                         ));
                     }
                 }
@@ -271,19 +277,19 @@ fn unique_keys(node: &Node, errors: &mut Vec<String>) {
                 }
             }
         }
-        Kind::Sequence(items) => items.iter().for_each(|item| unique_keys(item, errors)),
-        Kind::Scalar(_) | Kind::Alias { .. } => {}
+        YamlValue::Sequence(items) => items.iter().for_each(|item| unique_keys(item, errors)),
+        YamlValue::Scalar(_) | YamlValue::Alias { .. } => {}
     }
 }
 
 /// Decodes every scalar below `node`, failing as yaml.v3 does on a scalar
 /// that does not decode as its tag.
-fn decode(node: &Node) -> Result<(), String> {
-    match &node.kind {
-        Kind::Scalar(value) => scalar(&node.tag, value).map(drop),
-        Kind::Sequence(items) => items.iter().try_for_each(decode),
-        Kind::Mapping(pairs) => pairs.iter().try_for_each(|(_, value)| decode(value)),
-        Kind::Alias { .. } => Ok(()),
+fn decode(node: &YamlNode) -> Result<(), String> {
+    match &node.value {
+        YamlValue::Scalar(value) => scalar(&node.tag, value).map(drop),
+        YamlValue::Sequence(items) => items.iter().try_for_each(decode),
+        YamlValue::Mapping(pairs) => pairs.iter().try_for_each(|(_, value)| decode(value)),
+        YamlValue::Alias { .. } => Ok(()),
     }
 }
 
@@ -291,30 +297,28 @@ fn scalar(tag: &str, value: &str) -> Result<Value, String> {
     yaml::decode(tag, value).map_err(|message| format!("yaml: {message}"))
 }
 
-/// henia's entries: a mapping extends the key path, a sequence numbers its
-/// elements, and every other node is an entry at the key or element that
-/// leads to it.
-fn walk(entries: &mut Vec<Entry>, key: &str, index: Option<usize>, node: &Node, mark: Mark) {
-    match &node.kind {
-        Kind::Mapping(pairs) => {
+/// Pushes the entries below `node`, which the key or element `at` leads to.
+fn walk(entries: &mut Vec<Entry>, key: &str, index: Option<usize>, node: &YamlNode, at: &YamlNode) {
+    match &node.value {
+        YamlValue::Mapping(pairs) => {
             for (k, value) in pairs {
-                let path = format!("{key}.{}", k.value());
+                let path = format!("{key}.{}", k.text());
                 let path = path.strip_prefix('.').unwrap_or(&path);
-                walk(entries, path, index, value, k.mark);
+                walk(entries, path, index, value, k);
             }
         }
-        Kind::Sequence(items) => {
+        YamlValue::Sequence(items) => {
             for (i, item) in items.iter().enumerate() {
-                walk(entries, key, Some(i), item, item.mark);
+                walk(entries, key, Some(i), item, item);
             }
         }
-        Kind::Scalar(_) | Kind::Alias { .. } => entries.push(Entry {
+        YamlValue::Scalar(_) | YamlValue::Alias { .. } => entries.push(Entry {
             key: key.to_owned(),
-            value: node.value().to_owned(),
+            value: node.text().to_owned(),
             tag: node.tag.clone(),
             index,
-            line: mark.line,
-            column: mark.column,
+            line: at.line,
+            column: at.column,
         }),
     }
 }
@@ -339,7 +343,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn document(&mut self) -> Result<Option<Node>, String> {
+    fn document(&mut self) -> Result<Option<YamlNode>, String> {
         loop {
             match self.next()? {
                 None | Some((Event::StreamEnd, _)) => return Ok(None),
@@ -353,13 +357,12 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn node(&mut self, (event, span): (Event<'a>, Span)) -> Result<Node, String> {
-        let mark = Mark::of(span);
-        let (kind, tag, anchor) = match event {
+    fn node(&mut self, (event, span): (Event<'a>, Span)) -> Result<YamlNode, String> {
+        let (value, tag, anchor) = match event {
             Event::Scalar(value, style, anchor, tag) => {
                 let plain = style == ScalarStyle::Plain;
                 let tag = yaml::scalar_tag(full_tag(tag.as_ref()).as_deref(), plain, &value);
-                (Kind::Scalar(value.into_owned()), tag, anchor)
+                (YamlValue::Scalar(value.into_owned()), tag, anchor)
             }
             Event::SequenceStart(anchor, tag) => {
                 let mut items = Vec::new();
@@ -370,7 +373,7 @@ impl<'a> Reader<'a> {
                     }
                 }
                 (
-                    Kind::Sequence(items),
+                    YamlValue::Sequence(items),
                     collection_tag(tag.as_ref(), "!!seq"),
                     anchor,
                 )
@@ -389,7 +392,7 @@ impl<'a> Reader<'a> {
                     pairs.push((key, value));
                 }
                 (
-                    Kind::Mapping(pairs),
+                    YamlValue::Mapping(pairs),
                     collection_tag(tag.as_ref(), "!!map"),
                     anchor,
                 )
@@ -397,11 +400,17 @@ impl<'a> Reader<'a> {
             Event::Alias(id) => {
                 let name = alias_name(self.header, span);
                 let (tag, scalar) = self.anchors.get(&id).cloned().unwrap_or_default();
-                (Kind::Alias { name, scalar }, tag, 0)
+                (YamlValue::Alias { name, scalar }, tag, 0)
             }
             _ => return Err("yaml: unexpected event".to_owned()),
         };
-        let node = Node { kind, tag, mark };
+        let number = |n: usize| u32::try_from(n).unwrap_or(u32::MAX).saturating_add(1);
+        let node = YamlNode {
+            value,
+            tag,
+            line: number(span.start.line()),
+            column: number(span.start.col()),
+        };
         if anchor != 0 {
             let scalar = node.scalar().map(str::to_owned);
             self.anchors.insert(anchor, (node.tag.clone(), scalar));
@@ -450,8 +459,8 @@ mod tests {
 
     fn rows(frontmatter: &Frontmatter) -> Vec<String> {
         frontmatter
-            .entries
-            .iter()
+            .entries()
+            .into_iter()
             .map(|e| {
                 let index = e.index.map(|i| format!("[{i}]")).unwrap_or_default();
                 format!(
@@ -562,5 +571,33 @@ ref: *a
         let frontmatter = parse(text);
         assert_eq!(&text[frontmatter.body..], "body\r\n");
         assert_eq!(frontmatter.lines, 3);
+    }
+
+    #[test]
+    fn the_value_tree_keeps_empty_containers() {
+        let frontmatter = parse("---\ndata:\n  outdated: {}\n  banned: []\n---\n");
+        assert_eq!(rows(&frontmatter), [] as [String; 0]);
+        let node = |value, tag: &str, line, column| YamlNode {
+            value,
+            tag: tag.to_owned(),
+            line,
+            column,
+        };
+        let key = |name: &str, line| node(YamlValue::Scalar(name.to_owned()), "!!str", line, 3);
+        let data = YamlValue::Mapping(vec![
+            (
+                key("outdated", 3),
+                node(YamlValue::Mapping(Vec::new()), "!!map", 3, 13),
+            ),
+            (
+                key("banned", 4),
+                node(YamlValue::Sequence(Vec::new()), "!!seq", 4, 11),
+            ),
+        ]);
+        let root = YamlValue::Mapping(vec![(
+            node(YamlValue::Scalar("data".to_owned()), "!!str", 2, 1),
+            node(data, "!!map", 3, 3),
+        )]);
+        assert_eq!(frontmatter.root, Some(node(root, "!!map", 2, 1)));
     }
 }

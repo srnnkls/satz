@@ -21,7 +21,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use frontmatter::{Entry, Frontmatter};
+pub use frontmatter::{Entry, Frontmatter, YamlNode, YamlValue};
 pub use parse::Markdown;
 
 use self::document::Snapshot;
