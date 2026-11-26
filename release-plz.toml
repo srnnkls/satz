@@ -3,6 +3,7 @@ changelog_config = ".loqui/rust-release/cliff.toml"
 git_tag_name = "v{{ version }}"
 git_tag_enable = false
 git_release_enable = false
+release_always = false
 # crates.io rejects the git revision of markdown-it-rs that satz builds on.
 git_only = true
 
