@@ -788,7 +788,11 @@ impl<'q, 't> Matcher<'q, 't> {
                 self.view
                     .ancestors(at)
                     .find(|&a| self.view.kind(a) == "file")?;
-                let start = node.origin.position().map_or(0, |p| p.span().start);
+                let start = node
+                    .position
+                    .as_ref()
+                    .or_else(|| node.origin.position())
+                    .map_or(0, |p| p.span().start);
                 format!("{}\0{start:09}", node.origin.file())
             }
             _ => return node.attrs.get(key).cloned(),

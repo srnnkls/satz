@@ -63,10 +63,11 @@ impl Frontend for Markdown {
         let file: Arc<str> = Arc::from(file);
         let parsed = Frontmatter::parse(&file, text);
         let frontmatter = parsed.value;
-        let (body, shift) = frontmatter.as_ref().map_or_else(
-            || (&text[frontmatter::body_offset(text)..], 0),
-            |head| (&text[head.body..], head.lines),
+        let (offset, shift) = frontmatter.as_ref().map_or_else(
+            || (frontmatter::body_offset(text), 0),
+            |head| (head.body, head.lines),
         );
+        let body = &text[offset..];
         let mut root = Node::new("file", Origin::named(&file, None));
         body.clone_into(&mut root.body);
         let mut tree = Tree::new(root);
@@ -86,11 +87,13 @@ impl Frontend for Markdown {
         let nuls = Nuls::new(body);
         let faults = directive::faults(&doc);
         if !faults.is_empty() {
-            let _ = tree.append(root, problem(&file, body, &faults, shift, &nuls));
+            let at = (shift, offset);
+            let _ = tree.append(root, problem(&file, body, &faults, at, &nuls));
         }
         let place = Place {
             file: &file,
             shift,
+            offset,
             nuls,
         };
         for element in builder::build(&doc, true).children {
@@ -176,7 +179,13 @@ fn append_frontmatter(
 
 /// henia's markup problem: every fault located in the body, one per line,
 /// at the first fault's position.
-fn problem(file: &Arc<str>, body: &str, faults: &[Fault], shift: u32, nuls: &Nuls) -> Node {
+fn problem(
+    file: &Arc<str>,
+    body: &str,
+    faults: &[Fault],
+    (shift, offset): (u32, usize),
+    nuls: &Nuls,
+) -> Node {
     let located: Vec<(usize, u32, u32)> = faults
         .iter()
         .map(|fault| {
@@ -201,18 +210,19 @@ fn problem(file: &Arc<str>, body: &str, faults: &[Fault], shift: u32, nuls: &Nul
     });
     let mut node = Node::problem(
         message,
-        Origin::named(file, position.as_ref().map(|p| p.shifted(shift))),
+        Origin::named(file, position.as_ref().map(|p| p.moved(shift, offset))),
     );
     node.attrs.insert("kind".to_owned(), "markup".to_owned());
     node.position = position;
     node
 }
 
-/// Where elements land: their file, the lines frontmatter shifts them by,
-/// and the body's NULs.
+/// Where elements land: their file, the lines and bytes frontmatter shifts
+/// them by, and the body's NULs.
 struct Place<'a> {
     file: &'a Arc<str>,
     shift: u32,
+    offset: usize,
     nuls: Nuls,
 }
 
@@ -270,7 +280,10 @@ impl Place<'_> {
         .ok();
         let mut node = Node::new(
             element.kind,
-            Origin::named(self.file, position.as_ref().map(|p| p.shifted(self.shift))),
+            Origin::named(
+                self.file,
+                position.as_ref().map(|p| p.moved(self.shift, self.offset)),
+            ),
         );
         node.attrs = element.attrs;
         node.text = element.text;
@@ -628,6 +641,8 @@ mod tests {
         assert_eq!(heading.position.as_ref().map(Position::line), Some(10));
         assert_eq!(heading.origin.line(), Some(14));
         assert_eq!(heading.origin.to_string(), "a.md:14:3");
+        let span = heading.origin.position().unwrap().span();
+        assert_eq!(&text[span], "# Heading");
         let head: Vec<_> = tree
             .root()
             .children()

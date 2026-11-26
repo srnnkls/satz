@@ -101,6 +101,15 @@ impl Position {
             column: self.column,
         }
     }
+
+    /// The position moved down `lines` lines and on `bytes` bytes, as a
+    /// body's position becomes its file's past a header of that size.
+    #[must_use]
+    pub fn moved(&self, lines: u32, bytes: usize) -> Self {
+        let mut moved = self.shifted(lines);
+        moved.span = self.span.start + bytes..self.span.end + bytes;
+        moved
+    }
 }
 
 /// Where a node comes from: its file and its position in that file's source.
