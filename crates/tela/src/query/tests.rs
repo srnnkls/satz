@@ -1679,9 +1679,18 @@ fn a_caller_file_key_stays_an_attribute() {
         .unwrap()
         .attrs
         .insert("file".to_owned(), "physical/a.md".to_owned());
-    let query = Query::read(r#"(file :file "physical/a.md") @f"#, &schema(), None).unwrap();
+    let query = Query::read(
+        r#"(file :file "physical/a.md" :position ?p @p) @f"#,
+        &schema(),
+        None,
+    )
+    .unwrap();
     let rows = query.run(&tree, &Environment::new(UNIX_EPOCH)).unwrap();
     assert_eq!(rows[0].captures["f"], Capture::Nodes(vec![Hit::Node(root)]));
+    assert_eq!(
+        rows[0].value("p"),
+        Some(&Value::Text("docs/a.md\u{0}000000000".to_owned()))
+    );
     let position = Query::read("(heading :position ?p @p) @h", &schema(), None).unwrap();
     let rows = position.run(&tree, &Environment::new(UNIX_EPOCH)).unwrap();
     assert_eq!(
@@ -1790,6 +1799,21 @@ fn skill_spec() -> SchemaSpec {
             id_key: "id".to_owned(),
             qualifier_key: Some("package".to_owned()),
         }),
+    }
+}
+
+#[test]
+fn relations_need_a_unit() {
+    for query in [
+        "(link (to (section) @t)) @l",
+        "(file (reaches (file)) @f)",
+        "(file (not (inbound (file)))) @f",
+    ] {
+        let Err(e) = Query::read(query, &Schema::core(), None) else {
+            panic!("{query}: read, want an error");
+        };
+        assert_eq!(e.kind(), ReadErrorKind::NoUnit, "{query}");
+        assert!(e.message().contains("the schema has none"), "{e}");
     }
 }
 

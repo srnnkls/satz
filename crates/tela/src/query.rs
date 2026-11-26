@@ -377,6 +377,8 @@ pub enum ReadErrorKind {
     UnknownKey,
     /// A variable, capture or param is used before it is bound.
     Unbound,
+    /// A relation is used, but the schema registers no unit.
+    NoUnit,
 }
 
 /// A query the reader rejected, at a byte offset of its source.

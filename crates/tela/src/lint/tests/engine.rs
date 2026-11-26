@@ -302,6 +302,56 @@ fn semantic_rules_run_with_a_model_once_enabled() {
 }
 
 #[test]
+fn semantic_findings_defer_to_lexical_ones() {
+    let mut settings = semantic(true);
+    settings.config.insert(
+        id("similar-content"),
+        configured(
+            "similar-content",
+            &[
+                ("min-words", Value::Number(4.0)),
+                ("similarity", Value::Number(0.3)),
+            ],
+            &[],
+        )
+        .config
+        .remove(&id("similar-content"))
+        .unwrap(),
+    );
+    let mut corpus = corpus(&[(
+        "a.md",
+        "Repair the broken program and review the changes.\n\nRepair the broken program and review the fixes.\n",
+    )]);
+    corpus.environment.embed = Some(Arc::new(Soup));
+    let found = plan(settings.clone())
+        .run(&corpus, &Selection::All)
+        .unwrap();
+    assert_eq!(
+        found.iter().map(|d| d.rule().as_str()).collect::<Vec<_>>(),
+        ["similar-content"]
+    );
+    let only = Selection::Only(BTreeSet::from([id("semantic-content")]));
+    let found = plan(settings).run(&corpus, &only).unwrap();
+    assert_eq!(
+        found.iter().map(|d| d.rule().as_str()).collect::<Vec<_>>(),
+        ["semantic-content"]
+    );
+}
+
+#[test]
+fn outdated_references_point_at_the_match_in_any_case() {
+    let settings = configured("outdated-reference", &[], &[("outdated", outdated())]);
+    let found = run(
+        &plan(settings),
+        &[("a.md", "Prefer\nthe Legacy-Model now.\n")],
+    );
+    assert_eq!(
+        listed(&found),
+        ["outdated-reference a.md:2:5: \"legacy-model\" is marked outdated; use \"current-model\""]
+    );
+}
+
+#[test]
 fn duplicate_directive_content_reports_the_original() {
     let paragraph = "Inspect every changed function and report concrete failures with enough context to reproduce the problem.";
     let first = format!(":::instruction\n{paragraph}\n:::\n");
@@ -676,6 +726,10 @@ fn invalid_settings_fail_to_compile() {
             ),
             "rule duplicate-content: param min-words must be a number",
         ),
+        (
+            configured("duplicate-heading", &[("max", Value::Number(3.0))], &[]),
+            "rule duplicate-heading has no param or data \"max\"; it takes none",
+        ),
     ];
     for (settings, message) in cases {
         assert_eq!(compile_error(settings).to_string(), message);
@@ -715,8 +769,15 @@ fn params_no_module_sets_come_from_the_environment() {
 fn files_disable_rules_through_the_disable_key() {
     let nested = "---\nname: guide\ndescription: A guide skill for tests.\nhenia:\n  lint:\n    disable: [duplicate-heading]\n---\n\n# Guide\n\n## Usage\n\n## Usage\n";
     let flat = "---\ntela.lint.disable: duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
+    let listed =
+        "---\ntela.lint.disable: empty-section, duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
     let other = "---\nname: other\ndescription: Another skill for tests.\n---\n\n# Other\n\n## Usage\n\n## Usage\n";
-    let files = [("guide.md", nested), ("flat.md", flat), ("other.md", other)];
+    let files = [
+        ("guide.md", nested),
+        ("flat.md", flat),
+        ("listed.md", listed),
+        ("other.md", other),
+    ];
     let reported = |settings: Settings| -> Vec<String> {
         run(&plan(settings), &files)
             .iter()
@@ -726,7 +787,7 @@ fn files_disable_rules_through_the_disable_key() {
     assert_eq!(reported(Settings::default()), ["guide.md", "other.md"]);
     let mut henia = Settings::default();
     "henia.lint.disable".clone_into(&mut henia.disable_key);
-    assert_eq!(reported(henia), ["flat.md", "other.md"]);
+    assert_eq!(reported(henia), ["flat.md", "listed.md", "other.md"]);
 }
 
 const CONVENTIONS: &str = "---

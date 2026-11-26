@@ -222,10 +222,15 @@ impl Group {
                     .chain(self.data.keys())
                     .map(String::as_str)
                     .collect();
+                let hint = if known.is_empty() {
+                    "it takes none".to_owned()
+                } else {
+                    suggest(key, &known)
+                };
                 CompileError::UnknownSetting {
                     rule: self.id.clone(),
                     key: key.to_owned(),
-                    hint: suggest(key, &known),
+                    hint,
                 }
             }
         }

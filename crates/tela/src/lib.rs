@@ -65,7 +65,8 @@
 //! [`query::Schema::core`] knows the node types every frontend produces.
 //! [`query::Schema::new`] extends it through a [`query::SchemaSpec`]:
 //! further node types and keys, and a unit, the node type that the relations
-//! `reaches`, `inbound`, `to` and `from` work over. The links between units are
+//! `reaches`, `inbound`, `to` and `from` work over; without a unit, a query
+//! using them does not read. The links between units are
 //! precomputed: [`query::Environment::targets`] maps a link target to its
 //! unit node, and [`query::Environment::typed`] gives attributes typed
 //! values.

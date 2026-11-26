@@ -1,7 +1,7 @@
 //! Running a plan: each rule's queries over the corpus, their rows turned
 //! into diagnostics.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 
 use super::compile::Compiled;
@@ -11,7 +11,7 @@ use super::{
     Corpus, Diagnostic, Example, Expect, Outcome, Plan, RuleId, RunError, Score, Selection,
 };
 use crate::query::{self, Capture, Environment, Hit, Row, Table, Value};
-use crate::similarity::Shingles;
+use crate::similarity::{Shingles, fold};
 use crate::tree::{NodeRef, Origin, Position, Tree};
 
 /// How many shared phrases a finding reports.
@@ -25,13 +25,17 @@ impl Plan {
     /// A rule's own params and data override the environment's. Rules
     /// comparing texts under a semantic model run only when the settings
     /// enable them, and findings in a file whose frontmatter names the rule
-    /// under the disable key are dropped.
+    /// under the disable key are dropped. Within one module, a finding
+    /// scored by cosine is dropped where a finding scored by jaccard or
+    /// containment points at the same place, so a semantic rule reports
+    /// only what the lexical ones miss.
     ///
     /// # Errors
     /// Returns [`RunError::Query`] naming the rule whose query failed.
     pub fn run(&self, corpus: &Corpus, rules: &Selection) -> Result<Vec<Diagnostic>, RunError> {
         let mut environment = corpus.environment.clone();
         let mut found = Vec::new();
+        let mut lexical = BTreeSet::new();
         for (meta, compiled) in self.rules.iter().zip(&self.compiled) {
             if self.disabled.contains(&meta.id) || !rules.includes(meta.id.as_str()) {
                 continue;
@@ -48,8 +52,24 @@ impl Plan {
                     rule: meta.id.clone(),
                     source,
                 })?;
-            found.extend(diagnostics);
+            for diagnostic in diagnostics {
+                if matches!(
+                    diagnostic.score(),
+                    Some(Score::Jaccard { .. } | Score::Containment { .. })
+                ) {
+                    lexical.insert((meta.module.as_str(), place(&diagnostic)));
+                }
+                found.push((meta.module.as_str(), diagnostic));
+            }
         }
+        let mut found: Vec<Diagnostic> = found
+            .into_iter()
+            .filter(|(module, diagnostic)| {
+                !matches!(diagnostic.score(), Some(Score::Cosine { .. }))
+                    || !lexical.contains(&(*module, place(diagnostic)))
+            })
+            .map(|(_, diagnostic)| diagnostic)
+            .collect();
         found.sort_by(|a, b| order(a).cmp(&order(b)));
         found.dedup_by(|a, b| order(a) == order(b));
         Ok(found)
@@ -170,7 +190,9 @@ impl Plan {
                 head.children().any(|entry| {
                     let attrs = &entry.node().attrs;
                     attrs.get("key") == Some(&self.disable_key)
-                        && attrs.get("value").map(String::as_str) == Some(rule.as_str())
+                        && attrs.get("value").is_some_and(|value| {
+                            value.split(',').any(|id| id.trim() == rule.as_str())
+                        })
                 })
             })
     }
@@ -192,6 +214,15 @@ fn scope(
     environment
         .data
         .extend(data.iter().map(|(k, v)| (k.clone(), v.clone())));
+}
+
+/// Where a finding points: its file, line and column.
+fn place(diagnostic: &Diagnostic) -> (String, Option<(u32, u32)>) {
+    let origin = diagnostic.origin();
+    (
+        origin.file().to_owned(),
+        origin.position().map(|p| (p.line(), p.column())),
+    )
 }
 
 fn order(diagnostic: &Diagnostic) -> (&str, Option<(u32, u32)>, &str, &str) {
@@ -256,14 +287,12 @@ fn number(value: &Value) -> Option<f64> {
     }
 }
 
-/// `origin` moved to where `value` first appears in the node's `text`.
+/// `origin` moved to where `value` first appears in the node's `text`,
+/// matched case-insensitively as `contains` matches.
 fn focus(origin: &Origin, text: &str, value: &str) -> Origin {
-    let (Some(position), Some(index)) = (origin.position(), text.find(value)) else {
+    let (Some(position), Some(index)) = (origin.position(), find_folded(text, value)) else {
         return origin.clone();
     };
-    if value.is_empty() {
-        return origin.clone();
-    }
     let before = &text[..index];
     let (line, column) = match before.rfind('\n') {
         Some(newline) => (
@@ -283,6 +312,20 @@ fn focus(origin: &Origin, text: &str, value: &str) -> Origin {
         column,
     )
     .map_or_else(|_| origin.clone(), |at| origin.with_position(Some(at)))
+}
+
+/// The byte offset of the first place in `text` that matches `value` char by
+/// lower-cased char; none for an empty `value`.
+fn find_folded(text: &str, value: &str) -> Option<usize> {
+    let needle: Vec<char> = value.chars().map(fold).collect();
+    if needle.is_empty() {
+        return None;
+    }
+    let haystack: Vec<(usize, char)> = text.char_indices().map(|(i, c)| (i, fold(c))).collect();
+    haystack
+        .windows(needle.len())
+        .find(|window| window.iter().map(|&(_, c)| c).eq(needle.iter().copied()))
+        .map(|window| window[0].0)
 }
 
 fn count(n: usize) -> u32 {

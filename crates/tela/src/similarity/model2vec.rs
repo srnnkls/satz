@@ -84,21 +84,23 @@ mod tests {
     use crate::similarity::Embedding;
     use crate::similarity::tests::{GATE, GATE_PARAPHRASED, GATE_REWORDED};
 
+    /// The pinned model, or none to skip a test; a run under `CI` or with
+    /// `PARITY_MODEL` set needs it.
     fn pinned_model() -> Option<Model2Vec> {
+        let required = env::var_os("PARITY_MODEL").is_some()
+            || env::var_os("CI").is_some_and(|ci| !ci.is_empty() && ci != "false");
         let dir = env::var_os("PARITY_MODEL").map(PathBuf::from).or_else(|| {
             let cache = env::var_os("XDG_CACHE_HOME")
                 .map(PathBuf::from)
                 .or_else(|| env::home_dir().map(|home| home.join(".cache")))?;
             Some(cache.join("tela/models/potion-base-2M-389b9f6"))
-        })?;
-        if !dir.is_dir() {
-            eprintln!(
-                "skipped: no model at {}; run `mise run model`",
-                dir.display()
-            );
-            return None;
+        });
+        if let Some(dir) = dir.filter(|dir| dir.is_dir()) {
+            return Some(Model2Vec::load(dir).unwrap());
         }
-        Some(Model2Vec::load(dir).unwrap())
+        assert!(!required, "no pinned model; run `mise run model`");
+        eprintln!("skipped: no pinned model; run `mise run model`");
+        None
     }
 
     fn cosine(model: &Model2Vec, a: &str, b: &str) -> f64 {

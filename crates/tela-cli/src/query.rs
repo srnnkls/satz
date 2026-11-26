@@ -11,10 +11,9 @@ use std::time::SystemTime;
 use serde_json::{Map, Number, Value as Json};
 use tela::lint::Corpus;
 use tela::query::{Capture, Environment, Hit, Query, Row, Schema, Value};
-use tela::similarity::Model2Vec;
 use tela::{NodeRef, Tree};
 
-use crate::config::Source;
+use crate::config::{self, Source};
 use crate::failure::Failure;
 use crate::{Status, input, json};
 
@@ -67,8 +66,7 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
                 )
             })?,
         };
-        let model = Model2Vec::load(dir).map_err(|error| Failure::chain(&error))?;
-        environment.embed = Some(Arc::new(model));
+        environment.embed = Some(Arc::new(config::model(&dir)?));
     }
     let corpus = Corpus::new(trees, environment).map_err(|error| Failure::chain(&error))?;
     let mut rows = query

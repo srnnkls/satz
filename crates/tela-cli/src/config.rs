@@ -2,6 +2,7 @@
 //! semantic model's directory.
 
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use tela::lint::{InlineRule, RuleConfig, RuleId, Settings, Severity};
 use tela::query::{Table, Value};
+use tela::similarity::Model2Vec;
 
 use crate::failure::Failure;
 
@@ -19,7 +21,8 @@ pub(crate) const DEFAULT: &str = "tela.toml";
 pub(crate) struct Config {
     /// The lint settings.
     pub(crate) settings: Settings,
-    /// `[lint.semantic] model_path`.
+    /// `[lint.semantic] model_path`, resolved against the config file's
+    /// directory.
     pub(crate) model: Option<PathBuf>,
 }
 
@@ -45,8 +48,65 @@ impl Source {
             }
             Err(error) => return Err(Failure::from(error).context(path.display())),
         };
-        parse(&text).map_err(|failure| failure.context(path.display()))
+        let mut config = parse(&text).map_err(|failure| failure.context(path.display()))?;
+        if let Some(model) = &mut config.model {
+            let dir = path.parent().unwrap_or(Path::new(""));
+            *model = resolve(model, dir, |name| env::var(name).ok(), env::home_dir());
+        }
+        Ok(config)
     }
+}
+
+/// The `Model2Vec` model in `dir`.
+pub(crate) fn model(dir: &Path) -> Result<Model2Vec, Failure> {
+    if !dir.is_dir() {
+        return Err(Failure::new(format!(
+            "semantic model {}: no such directory",
+            dir.display()
+        )));
+    }
+    Model2Vec::load(dir).map_err(|error| Failure::chain(&error))
+}
+
+/// `path` with `$VAR` and `${VAR}` expanded, an unset variable as empty
+/// text, then a leading `~/` as `home` and a relative path under `dir`.
+fn resolve(
+    path: &Path,
+    dir: &Path,
+    var: impl Fn(&str) -> Option<String>,
+    home: Option<PathBuf>,
+) -> PathBuf {
+    let expanded = expand(&path.to_string_lossy(), var);
+    match (expanded.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => dir.join(expanded),
+    }
+}
+
+/// `text` with `$VAR` and `${VAR}` replaced by `var`'s values.
+fn expand(text: &str, var: impl Fn(&str) -> Option<String>) -> String {
+    let mut expanded = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(dollar) = rest.find('$') {
+        expanded.push_str(&rest[..dollar]);
+        let after = &rest[dollar + 1..];
+        let (name, next) = if let Some(braced) = after.strip_prefix('{') {
+            braced.split_once('}').unwrap_or(("", after))
+        } else {
+            let end = after
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(after.len());
+            after.split_at(end)
+        };
+        if name.is_empty() {
+            expanded.push('$');
+        } else {
+            expanded.push_str(&var(name).unwrap_or_default());
+        }
+        rest = next;
+    }
+    expanded.push_str(rest);
+    expanded
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -263,6 +323,27 @@ mod tests {
         assert_eq!(config.settings.disable_key, "tela.lint.disable");
         assert!(!config.settings.semantic);
         assert_eq!(config.model, None);
+    }
+
+    #[test]
+    fn model_paths_expand_variables_home_and_the_config_directory() {
+        let var = |name: &str| (name == "MODELS").then(|| "/srv/models".to_owned());
+        let home = Some(PathBuf::from("/home/me"));
+        let dir = Path::new("conf");
+        let resolved = |path: &str| resolve(Path::new(path), dir, var, home.clone());
+        assert_eq!(resolved("$MODELS/potion"), Path::new("/srv/models/potion"));
+        assert_eq!(
+            resolved("${MODELS}/potion"),
+            Path::new("/srv/models/potion")
+        );
+        assert_eq!(
+            resolved("~/models/potion"),
+            Path::new("/home/me/models/potion")
+        );
+        assert_eq!(resolved("models/potion"), Path::new("conf/models/potion"));
+        assert_eq!(resolved("/abs/potion"), Path::new("/abs/potion"));
+        assert_eq!(resolved("$UNSET/potion"), Path::new("/potion"));
+        assert_eq!(resolved("a$/b"), Path::new("conf/a$/b"));
     }
 
     #[test]

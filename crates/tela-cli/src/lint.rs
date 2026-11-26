@@ -1,6 +1,12 @@
-//! `tela lint`: tela's std rules and `tela.toml`'s inline rules over files,
-//! and `tela lint test`, which runs every rule's examples.
+//! `tela lint`: tela's std rules, the lint modules of the user's and the
+//! project's layers and `tela.toml`'s inline rules over files, and
+//! `tela lint test`, which runs every rule's examples.
+//!
+//! The user's layer is `$XDG_CONFIG_HOME/tela/lint`, or `~/.config/tela/lint`;
+//! the project's is `.tela/lint` in the nearest directory holding `.git`, or
+//! else in the current directory.
 
+use std::env;
 use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,11 +15,11 @@ use std::time::SystemTime;
 
 use serde::{Serialize, Serializer};
 use tela::lint::{
-    Config, Corpus, Diagnostic, Expect, Outcome, Plan, RuleId, Score, Selection, Severity, Spec,
+    CompileError, Config, Corpus, Diagnostic, Expect, Layer, Outcome, Plan, RuleId, Score,
+    Selection, Settings, Severity, Spec,
 };
 use tela::markdown::Markdown;
 use tela::query::Environment;
-use tela::similarity::Model2Vec;
 use tela::{Frontend, Origin};
 
 use crate::config::{self, Source};
@@ -62,8 +68,8 @@ pub(crate) fn run(args: &Args, source: &Source, out: &mut impl Write) -> Result<
     let environment = environment(settings.semantic, model.as_deref())?;
     let mut spec = Spec::default();
     config::DEFAULT.clone_into(&mut spec.labels.inline);
-    let config = Config::new(Vec::new(), spec, settings).map_err(|error| Failure::chain(&error))?;
-    let plan = Plan::compile(&config).map_err(|error| Failure::chain(&error))?;
+    let config = Config::new(layers()?, spec, settings).map_err(|error| Failure::chain(&error))?;
+    let plan = Plan::compile(&config).map_err(|error| compiled(&error, config.settings()))?;
     if let Some(Command::Test) = &args.command {
         return test(&plan, &environment, out);
     }
@@ -108,10 +114,44 @@ fn environment(semantic: bool, dir: Option<&Path>) -> Result<Environment, Failur
     if semantic {
         let dir =
             dir.ok_or_else(|| Failure::new("semantic rules are enabled but no model_path is set"))?;
-        let model = Model2Vec::load(dir).map_err(|error| Failure::chain(&error))?;
-        environment.embed = Some(Arc::new(model));
+        environment.embed = Some(Arc::new(config::model(dir)?));
     }
     Ok(environment)
+}
+
+/// The module layers that exist: the user's, then the project's.
+fn layers() -> Result<Vec<Layer>, Failure> {
+    let user = env::var_os("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| env::home_dir().map(|home| home.join(".config")))
+        .map(|dir| dir.join("tela/lint"));
+    let cwd = env::current_dir()?;
+    let project = cwd
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(&cwd)
+        .join(".tela/lint");
+    user.into_iter()
+        .chain([project])
+        .filter(|dir| dir.is_dir())
+        .map(|dir| Layer::read_dir(None, dir).map_err(|error| Failure::chain(&error)))
+        .collect()
+}
+
+/// A compile error; an inline rule's query error points into its query.
+fn compiled(error: &CompileError, settings: &Settings) -> Failure {
+    if let CompileError::Query {
+        module,
+        rule,
+        source,
+    } = error
+        && let Some(inline) = settings.rules.iter().find(|inline| &inline.id == rule)
+    {
+        return Failure::explain(&inline.query, source)
+            .context(format!("module {module:?}, rule {rule}"));
+    }
+    Failure::chain(error)
 }
 
 /// Runs each example over a corpus of its Markdown, printing the failures.

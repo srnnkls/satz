@@ -440,7 +440,8 @@ pub struct Settings {
     pub config: BTreeMap<RuleId, RuleConfig>,
     /// Disabled rules.
     pub disable: BTreeSet<RuleId>,
-    /// The frontmatter key a file disables rules with.
+    /// The frontmatter key a file disables rules with: one rule id, a
+    /// comma-separated list of them, or a YAML list.
     pub disable_key: String,
     /// Whether rules comparing texts under a semantic model run; the
     /// caller loads the model into [`Environment::embed`].

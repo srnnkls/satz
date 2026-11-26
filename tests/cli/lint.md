@@ -153,6 +153,30 @@ tela: semantic rules are enabled but no model_path is set
 [2]
 ```
 
+A relative `model_path` resolves against the config file's directory, after `$VAR` and `~/` expand; a path that names no directory is a config error.
+
+```scrut
+$ mkdir -p conf && printf '[lint.semantic]\nenabled = true\nmodel_path = "models/potion"\n' > conf/lint.toml && tela lint docs --config conf/lint.toml 2>&1
+tela: semantic model conf/models/potion: no such directory
+[2]
+```
+
+```scrut
+$ printf '[lint.semantic]\nenabled = true\nmodel_path = "$HOME/models/potion"\n' > tela.toml && tela lint docs 2>&1 | sed "s#$HOME#HOME#"
+tela: semantic model HOME/models/potion: no such directory
+```
+
+An inline rule whose query does not read points into its query.
+
+```scrut
+$ printf '[[lint.rules]]\nid = "bad"\nquery = "(heading) @h (headng) @x"\nmessage = "m"\n' > tela.toml && tela lint docs 2>&1
+tela: module "tela.toml", rule bad: unknown type "headng"
+  (heading) @h (headng) @x
+                ^
+  did you mean heading?
+[2]
+```
+
 A config file named with `--config` must exist.
 
 ```scrut
@@ -168,4 +192,51 @@ tela: other.toml: no such file or directory
 ```scrut
 $ : > tela.toml && tela lint test
 8 lint examples passed
+```
+
+## Module layers
+
+Lint modules in the project's `.tela/lint` and the user's `$XDG_CONFIG_HOME/tela/lint` join the std modules; their rules run and their examples are tested.
+
+```scrut
+$ mkdir -p .tela/lint config/tela/lint && cat > .tela/lint/build.md <<'EOF'
+> ## no-make
+>
+> ```tq
+> (rule no-make :message "use the mise task, not {@c.text}" (code :inline true :matches /^make\b/) @c)
+> ```
+>
+> ### Matches
+>
+> ```md
+> Run `make release`.
+> ```
+> EOF
+```
+
+```scrut
+$ cat > config/tela/lint/notes.md <<'EOF'
+> ## no-todo
+>
+> ```tq
+> (rule no-todo :message "resolve the TODO" (paragraph :matches /TODO/) @p)
+> ```
+>
+> ### Passes
+>
+> ```md
+> Done.
+> ```
+> EOF
+```
+
+```scrut
+$ printf 'Run `make release`.\n\nTODO: tidy.\n' > docs/build.md && tela lint docs/build.md
+docs/build.md:1:5: warning [no-make] use the mise task, not make release
+docs/build.md:3:1: warning [no-todo] resolve the TODO
+```
+
+```scrut
+$ tela lint test
+10 lint examples passed
 ```

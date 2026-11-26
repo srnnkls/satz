@@ -441,6 +441,14 @@ impl<'s> Reader<'s> {
     fn relation(&mut self) -> Result<Relation, ReadError> {
         self.next();
         let form = self.next();
+        if self.schema.unit().is_none() {
+            return Err(ReadError::new(
+                ReadErrorKind::NoUnit,
+                form.pos,
+                format!("({} ...) relates units, and the schema has none", form.text),
+            )
+            .with_hint("register a unit in the schema, or match links with (link :url ...)"));
+        }
         let target = self.pattern(NESTED)?;
         let close = self.next();
         if close.kind != Kind::Close {

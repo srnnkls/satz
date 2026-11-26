@@ -71,9 +71,12 @@ pub fn words(text: &str) -> Vec<String> {
 /// Lower-cases each char by its simple case mapping, as Go's `strings.ToLower`
 /// does: `İ` becomes `i` and a final `Σ` becomes `σ`.
 pub(crate) fn lowercase(text: &str) -> String {
-    text.chars()
-        .map(|c| c.to_lowercase().next().unwrap_or(c))
-        .collect()
+    text.chars().map(fold).collect()
+}
+
+/// `c` by its simple lower-case mapping.
+pub(crate) fn fold(c: char) -> char {
+    c.to_lowercase().next().unwrap_or(c)
 }
 
 /// The distinct runs of `size` consecutive words of a text.

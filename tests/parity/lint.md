@@ -18,7 +18,7 @@ $ cat > henia.toml <<EOF
 > containment = 0.8
 >
 > [lint.config.semantic-content]
-> threshold = 0.9
+> threshold = 0.7
 >
 > [lint.config.outdated-reference.outdated]
 > legacy-model = "current-model"
@@ -39,7 +39,7 @@ $ cat > tela.toml <<EOF
 > containment = 0.8
 >
 > [lint.config.semantic-content]
-> threshold = 0.9
+> threshold = 0.7
 >
 > [lint.config.outdated-reference.outdated]
 > legacy-model = "current-model"
@@ -184,11 +184,30 @@ $ henia lint --format json
       }
     ],
     "stage": "rendered"
+  },
+  {
+    "path": "skills/alpha/SKILL.md",
+    "line": 20,
+    "column": 1,
+    "severity": "warning",
+    "rule": "semantic-content",
+    "message": "paragraph may express similar instructions to */skills/alpha/SKILL.md:10 (cosine 0.743); review meaning and constraints", (glob)
+    "related": [
+      {
+        "path": "skills/alpha/SKILL.md",
+        "line": 10,
+        "column": 1
+      }
+    ],
+    "similarity": 0.7430853956418999,
+    "method": "cosine",
+    "model": "*/tela/models/potion-base-2M-389b9f6", (glob)
+    "stage": "source"
   }
 ]
 ```
 
-tela's findings are henia's without `stage`, with corpus-relative paths in messages, and with cosine scores to six decimals (AD-25):
+tela's findings are henia's without `stage`, with corpus-relative paths in messages, and with cosine scores to six decimals (AD-25). One finding diverges on purpose: tela drops a `semantic-content` finding where `similar-content` already reports the paragraph under its own config, so line 14 is reported once, as `similar-content`:
 
 ```scrut
 $ tela lint --format json
@@ -207,24 +226,6 @@ $ tela lint --format json
         "column": 1
       }
     ]
-  },
-  {
-    "path": "skills/alpha/SKILL.md",
-    "line": 14,
-    "column": 1,
-    "severity": "warning",
-    "rule": "semantic-content",
-    "message": "paragraph may express similar instructions to skills/alpha/SKILL.md:10 (cosine 0.982); review meaning and constraints",
-    "related": [
-      {
-        "path": "skills/alpha/SKILL.md",
-        "line": 10,
-        "column": 1
-      }
-    ],
-    "similarity": 0\.981988\d*, (regex)
-    "method": "cosine",
-    "model": "*/tela/models/potion-base-2M-389b9f6" (glob)
   },
   {
     "path": "skills/alpha/SKILL.md",
@@ -272,6 +273,24 @@ $ tela lint --format json
         "column": 4
       }
     ]
+  },
+  {
+    "path": "skills/alpha/SKILL.md",
+    "line": 20,
+    "column": 1,
+    "severity": "warning",
+    "rule": "semantic-content",
+    "message": "paragraph may express similar instructions to skills/alpha/SKILL.md:10 (cosine 0.743); review meaning and constraints",
+    "related": [
+      {
+        "path": "skills/alpha/SKILL.md",
+        "line": 10,
+        "column": 1
+      }
+    ],
+    "similarity": 0\.743085\d*, (regex)
+    "method": "cosine",
+    "model": "*/tela/models/potion-base-2M-389b9f6" (glob)
   }
 ]
 ```
