@@ -1,6 +1,6 @@
 //! Frontends turn a file format into a [`Tree`]; the registry picks one by
 //! file extension. The query and lint engines read only trees, so a format
-//! joins tela as one more [`Frontend`].
+//! joins satz as one more [`Frontend`].
 
 use std::fmt;
 use std::iter::FusedIterator;

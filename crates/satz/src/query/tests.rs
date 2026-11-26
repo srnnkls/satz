@@ -1,4 +1,4 @@
-//! henia's pattern tests, ported, with tela's schema, environment and
+//! henia's pattern tests, ported, with satz's schema, environment and
 //! regexp checks.
 
 use std::collections::{BTreeMap, BTreeSet};

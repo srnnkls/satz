@@ -35,10 +35,10 @@
 //! use std::sync::Arc;
 //! use std::time::SystemTime;
 //!
-//! use tela::markdown::Markdown;
-//! use tela::plain::Plain;
-//! use tela::Frontends;
-//! use tela::query::{Capture, Environment, Hit, Query, Schema};
+//! use satz::markdown::Markdown;
+//! use satz::plain::Plain;
+//! use satz::Frontends;
+//! use satz::query::{Capture, Environment, Hit, Query, Schema};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let frontends = Frontends::new(vec![Arc::new(Markdown::new()), Arc::new(Plain)], Some("plain"))?;
@@ -77,7 +77,7 @@
 //! program's [`lint::Spec`] (its schema, the extra module frontmatter keys it
 //! declares, and the labels of its rule sources) and the user's
 //! [`lint::Settings`]: inline rules, per-rule overrides and disabled rules.
-//! [`lint::Plan::compile`] loads tela's std modules, then the layers and the
+//! [`lint::Plan::compile`] loads satz's std modules, then the layers and the
 //! inline rules, and applies the settings. [`lint::Plan::run`] runs every
 //! rule, or a [`lint::Selection`], over one [`lint::Corpus`]: the files
 //! grafted under one root, and the environment.
@@ -86,10 +86,10 @@
 //! use std::sync::Arc;
 //! use std::time::SystemTime;
 //!
-//! use tela::Frontend;
-//! use tela::lint::{Config, Corpus, Layer, ModuleFile, Plan, Selection, Settings, Spec};
-//! use tela::markdown::Markdown;
-//! use tela::query::Environment;
+//! use satz::Frontend;
+//! use satz::lint::{Config, Corpus, Layer, ModuleFile, Plan, Selection, Settings, Spec};
+//! use satz::markdown::Markdown;
+//! use satz::query::Environment;
 //!
 //! const MODULE: &str = r#"
 //! ## no-make
@@ -140,10 +140,10 @@
 //! use std::sync::Arc;
 //! use std::time::SystemTime;
 //!
-//! use tela::markdown::Markdown;
-//! use tela::Frontend;
-//! use tela::query::{Environment, Query, Schema};
-//! use tela::similarity::{Embed, EmbedError};
+//! use satz::markdown::Markdown;
+//! use satz::Frontend;
+//! use satz::query::{Environment, Query, Schema};
+//! use satz::similarity::{Embed, EmbedError};
 //!
 //! /// Embeds a text as its counts of vowels.
 //! #[derive(Debug)]

@@ -93,7 +93,7 @@ mod tests {
             let cache = env::var_os("XDG_CACHE_HOME")
                 .map(PathBuf::from)
                 .or_else(|| env::home_dir().map(|home| home.join(".cache")))?;
-            Some(cache.join("tela/models/potion-base-2M-389b9f6"))
+            Some(cache.join("satz/models/potion-base-2M-389b9f6"))
         });
         if let Some(dir) = dir.filter(|dir| dir.is_dir()) {
             return Some(Model2Vec::load(dir).unwrap());

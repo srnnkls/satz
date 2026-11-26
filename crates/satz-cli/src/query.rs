@@ -1,4 +1,4 @@
-//! `tela query`: rows of a tq pattern over files, as a listing, whole node
+//! `satz query`: rows of a tq pattern over files, as a listing, whole node
 //! texts, JSON or a count.
 
 use std::collections::BTreeMap;
@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use satz::lint::Corpus;
+use satz::query::{Capture, Environment, Hit, Query, Row, Schema, Value};
+use satz::{NodeRef, Tree};
 use serde_json::{Map, Number, Value as Json};
-use tela::lint::Corpus;
-use tela::query::{Capture, Environment, Hit, Query, Row, Schema, Value};
-use tela::{NodeRef, Tree};
 
 use crate::config::{self, Source};
 use crate::failure::Failure;
@@ -87,11 +87,11 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
     if args.json {
         json::write(out, &printer.json(&rows))?;
     } else if rows.is_empty() {
-        eprintln!("tela: no matches");
+        eprintln!("satz: no matches");
     } else {
         printer.listing(out, &rows, args.text)?;
         if rows.len() < total {
-            eprintln!("tela: {} of {total} rows shown", rows.len());
+            eprintln!("satz: {} of {total} rows shown", rows.len());
         }
     }
     Ok(Status::Clean)

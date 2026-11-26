@@ -1,10 +1,10 @@
 //! The lint engine: rule modules from ordered layers, compiled into a plan
-//! that runs over one corpus and returns tela's own findings.
+//! that runs over one corpus and returns satz's own findings.
 //!
 //! A module is a Markdown file: its frontmatter sets `params` and `data`
 //! for its rules, its `tq` code blocks hold `(rule …)`, `(define …)` and
 //! `(import …)` forms, and `md` code blocks under a rule's `### Matches` or
-//! `### Passes` heading are the rule's examples. tela's std modules are
+//! `### Passes` heading are the rule's examples. satz's std modules are
 //! `std/duplicates`, `std/similarity`, `std/structure` and `std/links`.
 
 mod compile;
@@ -398,7 +398,7 @@ pub struct RuleConfig {
     pub data: BTreeMap<String, Table>,
 }
 
-/// Names the caller gives tela's sources.
+/// Names the caller gives satz's sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Labels {
@@ -424,7 +424,7 @@ impl Default for Labels {
 pub struct Spec {
     /// The schema rule queries are read against.
     pub schema: Schema,
-    /// Module frontmatter keys beyond tela's own, returned raw per rule.
+    /// Module frontmatter keys beyond satz's own, returned raw per rule.
     pub meta_keys: BTreeSet<String>,
     /// Source labels.
     pub labels: Labels,
@@ -454,7 +454,7 @@ impl Default for Settings {
             rules: Vec::new(),
             config: BTreeMap::new(),
             disable: BTreeSet::new(),
-            disable_key: "tela.lint.disable".to_owned(),
+            disable_key: "satz.lint.disable".to_owned(),
             semantic: false,
         }
     }
@@ -657,7 +657,7 @@ pub enum CompileError {
         /// What is wrong.
         message: String,
     },
-    /// A module's frontmatter has a key neither tela nor the caller declares.
+    /// A module's frontmatter has a key neither satz nor the caller declares.
     #[error("module {module:?}: unknown frontmatter key {key:?}")]
     UnknownMetaKey {
         /// The module.

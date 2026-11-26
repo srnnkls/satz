@@ -1,7 +1,7 @@
 # Std rules
 
-tela embeds four lint modules. Their rules run by default under
-[`tela lint`](lint.md); `[lint.config.<rule>]` in `tela.toml` sets their
+satz embeds four lint modules. Their rules run by default under
+[`satz lint`](lint.md); `[lint.config.<rule>]` in `satz.toml` sets their
 params and data, and `disable` turns them off.
 
 | Module | Rules | Params and data |
@@ -13,7 +13,7 @@ params and data, and `disable` turns them off.
 
 Every std rule reports a warning. The modules live in the crate's `std/`
 directory as ordinary [modules](lint.md#modules), each rule with its Matches
-and Passes examples, which `tela lint test` runs.
+and Passes examples, which `satz lint test` runs.
 
 ## duplicate-heading
 
@@ -34,7 +34,7 @@ EOF
 ```
 
 ```console
-$ tela lint docs/setup.md
+$ satz lint docs/setup.md
 docs/setup.md:5:4: warning [duplicate-heading] heading repeated; first occurrence on line 3
 ```
 
@@ -61,7 +61,7 @@ EOF
 ```
 
 ```console
-$ tela lint docs/a.md docs/b.md
+$ satz lint docs/a.md docs/b.md
 docs/b.md:1:1: warning [duplicate-content] paragraph duplicates docs/a.md:1
 ```
 
@@ -92,14 +92,14 @@ Inspect every changed function and report concrete failures with enough context 
 
 Inspect every changed function and report each concrete failure with enough context to reproduce it.
 EOF
-cat > tela.toml <<'EOF'
+cat > satz.toml <<'EOF'
 [lint.config.similar-content]
 similarity = 0.3
 EOF
 ```
 
 ```console
-$ tela lint docs/review.md
+$ satz lint docs/review.md
 docs/review.md:7:1: warning [similar-content] paragraph has 36.8% word-shingle jaccard with docs/review.md:3; shared phrases: changed function and; context to reproduce; enough context to; every changed function; function and report
 ```
 
@@ -140,13 +140,13 @@ cat > docs/models.md <<'EOF'
 
 Use `legacy-model` for drafts; see [the notes](legacy-model.md).
 EOF
-cat > tela.toml <<'EOF'
+cat > satz.toml <<'EOF'
 [lint.config.outdated-reference.outdated]
 legacy-model = "current-model"
 EOF
 ```
 
 ```console
-$ tela lint docs/models.md
+$ satz lint docs/models.md
 docs/models.md:3:6: warning [outdated-reference] "legacy-model" is marked outdated; use "current-model"
 ```

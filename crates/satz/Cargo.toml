@@ -1,5 +1,5 @@
 [package]
-name = "tela"
+name = "satz"
 description = "Structural query and lint over text"
 version = "0.0.0"
 edition.workspace = true

@@ -389,10 +389,10 @@ $ henia query --path tree.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path tree.md '(_) @n' --json
+$ satz query --path tree.md '(_) @n' --json
 [
   {
     "n": {
@@ -1006,10 +1006,10 @@ $ henia query --path front.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path front.md '(_) @n' --json
+$ satz query --path front.md '(_) @n' --json
 [
   {
     "n": {
@@ -1410,10 +1410,10 @@ $ henia query --path errors.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path errors.md '(_) @n' --json
+$ satz query --path errors.md '(_) @n' --json
 [
   {
     "n": {
@@ -1603,10 +1603,10 @@ $ henia query --path notes.txt '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path notes.txt '(_) @n' --json
+$ satz query --path notes.txt '(_) @n' --json
 [
   {
     "n": {
@@ -1654,7 +1654,7 @@ $ cat > links.md <<'EOF'
 > EOF
 ```
 
-henia keeps three goldmark quirks that tela fixes (AD-20, AD-27): the definition-only paragraph becomes an empty paragraph on line 1, the autolink loses its line and text, and destinations stay escaped.
+henia keeps three goldmark quirks that satz fixes (AD-20, AD-27): the definition-only paragraph becomes an empty paragraph on line 1, the autolink loses its line and text, and destinations stay escaped.
 
 ```scrut
 $ henia query --path links.md '(_) @n' --json
@@ -1775,10 +1775,10 @@ $ henia query --path links.md '(_) @n' --json
 ]
 ```
 
-tela drops the empty paragraph, places the autolink on line 5 with its URL as text, and unescapes the destinations. Its links carry `url` without henia's link resolution attributes, and it writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz drops the empty paragraph, places the autolink on line 5 with its URL as text, and unescapes the destinations. Its links carry `url` without henia's link resolution attributes, and it writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path links.md '(_) @n' --json
+$ satz query --path links.md '(_) @n' --json
 [
   {
     "n": {

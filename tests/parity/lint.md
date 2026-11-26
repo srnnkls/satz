@@ -1,6 +1,6 @@
 # Lint parity
 
-A skill fixture on which every tela std rule fires, and a second skill that turns `duplicate-heading` off for itself through the per-file disable key, linted by the pinned henia with its own rules disabled and by tela under the same rule config (AD-25, AC-13). henia lints only skills, hence the `skills/` layout.
+A skill fixture on which every satz std rule fires, and a second skill that turns `duplicate-heading` off for itself through the per-file disable key, linted by the pinned henia with its own rules disabled and by satz under the same rule config (AD-25, AC-13). henia lints only skills, hence the `skills/` layout.
 
 Both CLIs read only the config written into this file's working directory.
 
@@ -30,7 +30,7 @@ $ cat > henia.toml <<EOF
 ```
 
 ```scrut
-$ cat > tela.toml <<EOF
+$ cat > satz.toml <<EOF
 > [lint]
 > disable_key = "henia.lint.disable"
 >
@@ -54,7 +54,7 @@ $ cat > tela.toml <<EOF
 $ mkdir -p skills/alpha && cat > skills/alpha/SKILL.md <<'EOF'
 > ---
 > name: alpha
-> description: Fixture skill on which every tela rule fires.
+> description: Fixture skill on which every satz rule fires.
 > ---
 >
 > # Alpha
@@ -132,7 +132,7 @@ $ henia lint --format json
     ],
     "similarity": 0.9819888423909093,
     "method": "cosine",
-    "model": "*/tela/models/potion-base-2M-389b9f6", (glob)
+    "model": "*/satz/models/potion-base-2M-389b9f6", (glob)
     "stage": "source"
   },
   {
@@ -201,16 +201,16 @@ $ henia lint --format json
     ],
     "similarity": 0.7430853956418999,
     "method": "cosine",
-    "model": "*/tela/models/potion-base-2M-389b9f6", (glob)
+    "model": "*/satz/models/potion-base-2M-389b9f6", (glob)
     "stage": "source"
   }
 ]
 ```
 
-tela's findings are henia's without `stage`, with corpus-relative paths in messages, and with cosine scores to six decimals (AD-25). One finding diverges on purpose: tela drops a `semantic-content` finding where `similar-content` already reports the paragraph under its own config, so line 14 is reported once, as `similar-content`:
+satz's findings are henia's without `stage`, with corpus-relative paths in messages, and with cosine scores to six decimals (AD-25). One finding diverges on purpose: satz drops a `semantic-content` finding where `similar-content` already reports the paragraph under its own config, so line 14 is reported once, as `similar-content`:
 
 ```scrut
-$ tela lint --format json
+$ satz lint --format json
 [
   {
     "path": "skills/alpha/SKILL.md",
@@ -290,7 +290,7 @@ $ tela lint --format json
     ],
     "similarity": 0\.743085\d*, (regex)
     "method": "cosine",
-    "model": "*/tela/models/potion-base-2M-389b9f6" (glob)
+    "model": "*/satz/models/potion-base-2M-389b9f6" (glob)
   }
 ]
 ```

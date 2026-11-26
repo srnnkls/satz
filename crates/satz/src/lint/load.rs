@@ -1,4 +1,4 @@
-//! Module files, tela's std modules and the layers', read into rule groups.
+//! Module files, satz's std modules and the layers', read into rule groups.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as _;
@@ -12,7 +12,7 @@ use crate::markdown::{Frontmatter, Markdown};
 use crate::query::{Defines, ReadError, Schema, Table, Value};
 use crate::tree::{NodeRef, Tree};
 
-/// tela's std modules by name within the std prefix.
+/// satz's std modules by name within the std prefix.
 const STD: [(&str, &str); 4] = [
     ("duplicates", include_str!("../../std/duplicates.md")),
     ("links", include_str!("../../std/links.md")),

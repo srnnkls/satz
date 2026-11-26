@@ -11,9 +11,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use ignore::WalkBuilder;
-use tela::markdown::Markdown;
-use tela::plain::Plain;
-use tela::{Frontend, Frontends, Tree};
+use satz::markdown::Markdown;
+use satz::plain::Plain;
+use satz::{Frontend, Frontends, Tree};
 
 use crate::failure::{self, Failure};
 
@@ -46,7 +46,7 @@ pub(crate) fn read(roots: &[PathBuf], frontends: &Frontends) -> Result<Vec<Tree>
         })
         .collect();
     if !missing.is_empty() {
-        return Err(Failure::new(missing.join("\ntela: ")));
+        return Err(Failure::new(missing.join("\nsatz: ")));
     }
     let mut seen = HashSet::new();
     let mut trees = Vec::new();
@@ -102,7 +102,7 @@ fn parse(path: &Path, frontend: &dyn Frontend) -> Option<Tree> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("tela: {display}: omitted: {}", failure::cause(&error));
+            eprintln!("satz: {display}: omitted: {}", failure::cause(&error));
             return None;
         }
     };
@@ -118,12 +118,12 @@ fn omitted(error: &ignore::Error) {
     match (location(error), cause(error)) {
         (Some(path), Some(cause)) => {
             eprintln!(
-                "tela: {}: omitted: {}",
+                "satz: {}: omitted: {}",
                 clean(path).display(),
                 failure::cause(cause)
             );
         }
-        _ => eprintln!("tela: {error}"),
+        _ => eprintln!("satz: {error}"),
     }
 }
 

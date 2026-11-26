@@ -22,7 +22,7 @@ struct Typed {
 }
 
 impl Plan {
-    /// Compiles tela's std modules, the layers' modules and the inline rules,
+    /// Compiles satz's std modules, the layers' modules and the inline rules,
     /// then applies the per-rule config.
     ///
     /// Modules are named by their path without `.md`, under their layer's

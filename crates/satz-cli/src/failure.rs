@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
-use tela::query::ReadError;
+use satz::query::ReadError;
 
 /// A command's failure, with its causes joined into one message.
 #[derive(Debug)]

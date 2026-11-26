@@ -1,6 +1,6 @@
 # Query parity
 
-Each pair runs the same pattern through the pinned henia and through tela over the same Markdown, and the rows must agree (AD-24, AD-25).
+Each pair runs the same pattern through the pinned henia and through satz over the same Markdown, and the rows must agree (AD-24, AD-25).
 
 Both CLIs read only the config written into this file's working directory.
 
@@ -151,10 +151,10 @@ $ henia query --path docs '(heading) @h' --json
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(heading) @h' --json
+$ satz query --path docs '(heading) @h' --json
 [
   {
     "h": {
@@ -287,10 +287,10 @@ $ henia query --path docs '(section :id "install" (code :lang ?l @lang) @c)' --j
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(section :id "install" (code :lang ?l @lang) @c)' --json
+$ satz query --path docs '(section :id "install" (code :lang ?l @lang) @c)' --json
 [
   {
     "?l": "bash",
@@ -391,10 +391,10 @@ $ henia query --path docs '(code :inline false :lang ?l) @c (group ?l (count @c 
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(code :inline false :lang ?l) @c (group ?l (count @c @n))' --json
+$ satz query --path docs '(code :inline false :lang ?l) @c (group ?l (count @c @n))' --json
 [
   {
     "?l": "bash",
@@ -451,7 +451,7 @@ $ tela query --path docs '(code :inline false :lang ?l) @c (group ?l (count @c @
 ]
 ```
 
-Links and images; henia adds its link resolution attributes, tela keeps `url` only (AD-25):
+Links and images; henia adds its link resolution attributes, satz keeps `url` only (AD-25):
 
 ```scrut
 $ henia query --path docs '(link) @l' --json
@@ -476,10 +476,10 @@ $ henia query --path docs '(link) @l' --json
 ]
 ```
 
-tela prints the same rows without henia's link resolution attributes.
+satz prints the same rows without henia's link resolution attributes.
 
 ```scrut
-$ tela query --path docs '(link) @l' --json
+$ satz query --path docs '(link) @l' --json
 [
   {
     "l": {
@@ -521,10 +521,10 @@ $ henia query --path docs '(table (row (cell :column "Check" :text "")) @r)' --j
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(table (row (cell :column "Check" :text "")) @r)' --json
+$ satz query --path docs '(table (row (cell :column "Check" :text "")) @r)' --json
 [
   {
     "r": {
@@ -626,10 +626,10 @@ $ henia query --path docs '(entry :key ?k @k) @e' --json
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(entry :key ?k @k) @e' --json
+$ satz query --path docs '(entry :key ?k @k) @e' --json
 [
   {
     "?k": "title",
@@ -812,10 +812,10 @@ $ henia query --path docs '(heading :position ?p @pos) @h' --sort '-@pos' --json
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(heading :position ?p @pos) @h' --sort '-@pos' --json
+$ satz query --path docs '(heading :position ?p @pos) @h' --sort '-@pos' --json
 [
   {
     "?p": "docs/other.md\u0000000000009",
@@ -1026,10 +1026,10 @@ $ henia query --path docs '(section :lines (>= 3) @l) @s' --json
 ]
 ````
 
-tela prints the same.
+satz prints the same.
 
 ````scrut
-$ tela query --path docs '(section :lines (>= 3) @l) @s' --json
+$ satz query --path docs '(section :lines (>= 3) @l) @s' --json
 [
   {
     "l": "25",
@@ -1380,10 +1380,10 @@ $ henia query --path docs '(section (code)? @c) @s (group @s (count @c @n) (sum 
 ]
 ````
 
-tela prints the same.
+satz prints the same.
 
 ````scrut
-$ tela query --path docs '(section (code)? @c) @s (group @s (count @c @n) (sum :lines @c @l))' --sort '-@n' --json
+$ satz query --path docs '(section (code)? @c) @s (group @s (count @c @n) (sum :lines @c @l))' --sort '-@n' --json
 [
   {
     "c": [
@@ -1634,10 +1634,10 @@ $ henia query --path docs '(heading :level 2) @h'
 @h  docs/other.md#part  L3  heading  Part
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(heading :level 2) @h'
+$ satz query --path docs '(heading :level 2) @h'
 @h  docs/guide.md#install  L11  heading  Install
 @h  docs/guide.md#tables  L21  heading  Tables
 @h  docs/guide.md#install-1  L28  heading  Install
@@ -1651,10 +1651,10 @@ $ henia query --path docs '(paragraph) @p' --count
 4
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(paragraph) @p' --count
+$ satz query --path docs '(paragraph) @p' --count
 4
 ```
 
@@ -1678,10 +1678,10 @@ $ henia query --path docs '(paragraph) @p' --limit 1 --json
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path docs '(paragraph) @p' --limit 1 --json
+$ satz query --path docs '(paragraph) @p' --limit 1 --json
 [
   {
     "p": {
@@ -1698,7 +1698,7 @@ $ tela query --path docs '(paragraph) @p' --limit 1 --json
 ]
 ```
 
-File nodes; henia adds `file`, `kind` and `main`, tela's walker sets `path` only (FR-7, AD-25):
+File nodes; henia adds `file`, `kind` and `main`, satz's walker sets `path` only (FR-7, AD-25):
 
 ```scrut
 $ henia query --path docs '(file) @f' --json
@@ -1730,10 +1730,10 @@ $ henia query --path docs '(file) @f' --json
 ]
 ```
 
-tela prints the same rows with `path` as the only attribute.
+satz prints the same rows with `path` as the only attribute.
 
 ```scrut
-$ tela query --path docs '(file) @f' --json
+$ satz query --path docs '(file) @f' --json
 [
   {
     "f": {

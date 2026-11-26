@@ -66,7 +66,7 @@ fn layers_reject_duplicate_files() {
 
 #[test]
 fn read_dir_collects_markdown_with_relative_paths() {
-    let dir = std::env::temp_dir().join(format!("tela-layer-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("satz-layer-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("team")).unwrap();
     std::fs::write(dir.join("team/headings.md"), "# Headings\n").unwrap();
     std::fs::write(dir.join("notes.txt"), "skip").unwrap();

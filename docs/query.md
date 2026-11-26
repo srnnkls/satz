@@ -1,6 +1,6 @@
-# tela query
+# satz query
 
-`tela query PATTERN` matches a tq pattern against Markdown and text files and
+`satz query PATTERN` matches a tq pattern against Markdown and text files and
 prints one row per match, with one line per capture. tq patterns are
 S-expressions over the document tree: a `?variable` constrains or joins, and
 an `@capture` names what a row prints.
@@ -22,7 +22,7 @@ Read the [runbook](runbook.md) and the [site](https://example.com/ops) first.
 ## Install
 
 ```sh
-cargo install tela-cli
+cargo install satz-cli
 ```
 
 Run `make release` to ship.
@@ -63,7 +63,7 @@ A capture prints the node's address, the lines it spans, its type and its
 first line:
 
 ```console
-$ tela query '(heading :level 2) @h'
+$ satz query '(heading :level 2) @h'
 @h  docs/guide.md#install  L10  heading  Install
 @h  docs/guide.md#usage  L18  heading  Usage
 @h  docs/guide.md#usage-1  L28  heading  Usage
@@ -73,7 +73,7 @@ $ tela query '(heading :level 2) @h'
 Here is how many headings each level has, most first:
 
 ```console
-$ tela query '(heading :level ?l) @h (group ?l (count @h @n))' --sort '-@n'
+$ satz query '(heading :level ?l) @h (group ?l (count @h @n))' --sort '-@n'
 ?l=2
 @h  4 nodes
 @n  4
@@ -86,20 +86,20 @@ $ tela query '(heading :level ?l) @h (group ?l (count @h @n))' --sort '-@n'
 ## Examples
 
 ```
-tela query '(section :title "Install" (code) @c)'
-tela query '(section > (heading) @title (code :lang "sh") @c)'
-tela query '(section :title "Install" (code) @c . (paragraph) @after)'
-tela query '(link :url /^https:/ @u) @l'
-tela query '[(code :lang "toml") (code :lang "yaml")] @c'
-tela query '(list :ordered true (item)+ @items)'
-tela query '(section :title "Usage" (table (row :header false (cell :column "Flag") @flag)))'
-tela query '(entry :key "tags" :value ?tag @tag) @e'
-tela query '(heading :norm ?t :node ?n) @first (heading :norm ?t :node (after ?n)) @repeat'
-tela query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.3 @s)) @b'
-tela query '(code :inline true :matches /^make (?<target>\w+)$/) @c (section :id ?target) @s'
-tela query '(file :path ?p) @f (not (file :path ?p (table)))'
-tela query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words @p @words))'
-tela query '(paragraph :words ?w @w) @p' --sort '-@w' --limit 3
+satz query '(section :title "Install" (code) @c)'
+satz query '(section > (heading) @title (code :lang "sh") @c)'
+satz query '(section :title "Install" (code) @c . (paragraph) @after)'
+satz query '(link :url /^https:/ @u) @l'
+satz query '[(code :lang "toml") (code :lang "yaml")] @c'
+satz query '(list :ordered true (item)+ @items)'
+satz query '(section :title "Usage" (table (row :header false (cell :column "Flag") @flag)))'
+satz query '(entry :key "tags" :value ?tag @tag) @e'
+satz query '(heading :norm ?t :node ?n) @first (heading :norm ?t :node (after ?n)) @repeat'
+satz query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.3 @s)) @b'
+satz query '(code :inline true :matches /^make (?<target>\w+)$/) @c (section :id ?target) @s'
+satz query '(file :path ?p) @f (not (file :path ?p (table)))'
+satz query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words @p @words))'
+satz query '(paragraph :words ?w @w) @p' --sort '-@w' --limit 3
 ```
 
 ## Types
@@ -143,10 +143,10 @@ Every type also takes these keys:
 - `:norm`, the text lower-cased with whitespace collapsed;
 - `:node`, an id in document order;
 - `:position`, the file path, then the offset;
-- `:dynamic`, a flag a program embedding tela sets on text that rules about
-  wording should skip. `tela query` sets it on nothing.
+- `:dynamic`, a flag a program embedding satz sets on text that rules about
+  wording should skip. `satz query` sets it on nothing.
 
-A program embedding tela can register further node types and keys, and a unit
+A program embedding satz can register further node types and keys, and a unit
 type such as a document set, through its schema; see the crate documentation.
 
 ## Values
@@ -166,7 +166,7 @@ type such as a document set, through its schema; see the crate documentation.
 - A `?variable` binds the key's value. Every other use of it must be equal,
   which joins the patterns that share it.
 - A `$param` stands for a number or text the caller supplies. Lint rules take
-  params from their module and from `tela.toml`; `tela query` supplies none.
+  params from their module and from `satz.toml`; `satz query` supplies none.
 
 Compared with a variable:
 
@@ -182,17 +182,17 @@ Compared with a variable:
   shingles.
 - `(similar ?t 0.85)` has at least that cosine similarity under a local
   Model2Vec model: `--model DIR`, else `[lint.semantic] model_path` in
-  `tela.toml`.
+  `satz.toml`.
 
 `near` and `overlap` intersect the shingle sets exactly. Two paragraphs that
 say nearly the same thing:
 
 ```console
-$ tela query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.3 @s)) @b'
+$ satz query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.3 @s)) @b'
 @a  docs/notes.md#notes  L3  paragraph  Inspect every changed function and report concrete failures with enough context…
 @s  0.3684210526315789
 @b  docs/notes.md#review  L7  paragraph  Inspect every changed function and report each concrete failure with enough con…
-$ tela query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (overlap ?t 0.3 @s)) @b'
+$ satz query '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (overlap ?t 0.3 @s)) @b'
 @a  docs/notes.md#notes  L3  paragraph  Inspect every changed function and report concrete failures with enough context…
 @s  0.5384615384615384
 @b  docs/notes.md#review  L7  paragraph  Inspect every changed function and report each concrete failure with enough con…
@@ -260,15 +260,15 @@ comment  := ";" to the end of the line
 - `[P1 P2]` matches either. Every alternative binds the same variables.
 - `(not P)` rejects a node with a descendant matching P.
 - The relations `(reaches P)`, `(inbound P)`, `(to P)` and `(from P)` follow
-  links between units, the node type a program embedding tela registers in its
-  schema together with the link targets. `tela query` registers no unit, so a
+  links between units, the node type a program embedding satz registers in its
+  schema together with the link targets. `satz query` registers no unit, so a
   query using a relation is an error there.
 
 ```console
-$ tela query '(list . (item) @first)'
+$ satz query '(list . (item) @first)'
 @first  docs/guide.md#usage  L25  item  first item
 @first  docs/guide.md#usage-1  L32  item  one
-$ tela query '(section :level 2 (quote)? @q) @s'
+$ satz query '(section :level 2 (quote)? @q) @s'
 @q  -
 @s  docs/guide.md#install  L10-16  section  Install
 
@@ -306,7 +306,7 @@ print their captures.
 Files without a table:
 
 ```console
-$ tela query '(file :path ?p) @f (not (file :path ?p (table)))'
+$ satz query '(file :path ?p) @f (not (file :path ?p (table)))'
 @f  docs/notes.md  file
 ```
 
@@ -316,7 +316,7 @@ $ tela query '(file :path ?p) @f (not (file :path ?p (table)))'
 combination of keys:
 
 ```console
-$ tela query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words @p @words))'
+$ satz query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words @p @words))'
 ?f=docs/guide.md
 @p  7 nodes
 @n  7
@@ -349,7 +349,7 @@ $ tela query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words
   capture with the distinct values of its group.
 
 ```console
-$ tela query '(file (code :inline false)? @c) @f (group @f (count @c @n))'
+$ satz query '(file (code :inline false)? @c) @f (group @f (count @c @n))'
 @c  1 node
 @f  docs/guide.md  file
 @n  1
@@ -365,8 +365,8 @@ The reader rejects a query with a message, the query line, a caret under the
 offending token and, where it knows one, a suggested fix:
 
 ```console
-$ tela query '(heading :text ?t) @h'
-tela: ?t appears only once, so it matches anything
+$ satz query '(heading :text ?t) @h'
+satz: ?t appears only once, so it matches anything
   (heading :text ?t) @h
                  ^
   use ?t again to join on it, or drop it
@@ -443,22 +443,22 @@ node capture `@capture.key`, descending with a leading `-`: `--sort '-@n'`,
 - `--sort`, `--limit` and `--count` apply after grouping.
 
 ```console
-$ tela query '(paragraph :words ?w) @p' --sort '-?w' --limit 2
+$ satz query '(paragraph :words ?w) @p' --sort '-?w' --limit 2
 ?w=15
 @p  docs/notes.md#notes  L3  paragraph  Inspect every changed function and report concrete failures with enough context…
 
 ?w=15
 @p  docs/notes.md#review  L7  paragraph  Inspect every changed function and report each concrete failure with enough con…
-tela: 2 of 10 rows shown
+satz: 2 of 10 rows shown
 ```
 
 Rows go to stdout. A query that matches nothing prints `[]` under `--json`,
-and otherwise `tela: no matches` on stderr; it still exits 0. A query the
+and otherwise `satz: no matches` on stderr; it still exits 0. A query the
 reader rejects, a missing path or a missing model exits 2.
 
 ## Files
 
-Without `--path`, `tela query` walks the current directory. `--path` names a
+Without `--path`, `satz query` walks the current directory. `--path` names a
 file or directory instead, and repeats.
 
 - A directory yields every file whose extension a frontend claims: `.md` for
@@ -469,6 +469,6 @@ file or directory instead, and repeats.
 - A file's path is its `--path` argument, cleaned, joined with the path below
   it.
 - A file reached through several arguments is read once.
-- A file that cannot be read is left out with a `tela: <path>: omitted: …`
+- A file that cannot be read is left out with a `satz: <path>: omitted: …`
   line on stderr, and the query runs over the rest. A missing path stops the
   query.

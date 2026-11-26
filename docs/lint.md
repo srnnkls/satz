@@ -1,9 +1,9 @@
-# tela lint
+# satz lint
 
-`tela lint` checks Markdown and text files with rules written as
+`satz lint` checks Markdown and text files with rules written as
 [tq](query.md) queries. Each row a rule's query matches becomes a finding.
 The [std rules](rules.md) run by default, [modules](#modules) in the
-project's and the user's lint directories add rules, and `tela.toml` tunes
+project's and the user's lint directories add rules, and `satz.toml` tunes
 them all and adds rules of its own.
 
 Make a document with two problems:
@@ -26,7 +26,7 @@ EOF
 ```
 
 ```console
-$ tela lint
+$ satz lint
 docs/deploy.md:9:4: warning [duplicate-heading] heading repeated; first occurrence on line 5
 docs/deploy.md:11:1: warning [duplicate-content] paragraph duplicates docs/deploy.md:3
 ```
@@ -35,7 +35,7 @@ Each finding prints `path:line:column: severity [rule] message`. Errors fail
 the run; warnings fail it only under `--strict`:
 
 ```console
-$ tela lint --strict || echo "exit $?"
+$ satz lint --strict || echo "exit $?"
 docs/deploy.md:9:4: warning [duplicate-heading] heading repeated; first occurrence on line 5
 docs/deploy.md:11:1: warning [duplicate-content] paragraph duplicates docs/deploy.md:3
 exit 1
@@ -46,8 +46,8 @@ config error, printed on stderr.
 
 ## What lint reads
 
-`tela lint PATH...` reads the files and directories it names, and the current
-directory without paths. It reads them as [`tela query`](query.md#files)
+`satz lint PATH...` reads the files and directories it names, and the current
+directory without paths. It reads them as [`satz query`](query.md#files)
 does: a directory yields the Markdown files below it, skipping hidden
 entries, Git-ignored paths, `.git`, `node_modules` and `vendor`, while a file
 named on the command line is always read, as plain text when no frontend
@@ -56,11 +56,11 @@ claims its extension. A file that cannot be read is left out with an
 
 ## Configuration
 
-`tela.toml` in the current directory configures lint under `[lint]`;
+`satz.toml` in the current directory configures lint under `[lint]`;
 `--config FILE` names another file, which must exist.
 
 ```bash
-cat > tela.toml <<'EOF'
+cat > satz.toml <<'EOF'
 [lint]
 disable = ["duplicate-content"]
 
@@ -78,7 +78,7 @@ EOF
 ```
 
 ```console
-$ tela lint
+$ satz lint
 docs/deploy.md:3:10: warning [outdated-reference] "runbook" is marked outdated; use "playbook"
 docs/deploy.md:7:5: warning [no-make] Use the mise task, not make release.
 docs/deploy.md:9:4: error [duplicate-heading] heading repeated; first occurrence on line 5
@@ -100,8 +100,8 @@ An unknown key, rule, param or table is an error, and an unknown rule id
 suggests the nearest one:
 
 ```console
-$ tela lint --disable duplicate-headings
-tela: no rule duplicate-headings; did you mean duplicate-heading?
+$ satz lint --disable duplicate-headings
+satz: no rule duplicate-headings; did you mean duplicate-heading?
 ```
 
 ## Severity
@@ -112,14 +112,14 @@ ordered by file, line, column, rule and message, each once.
 
 ## Turning rules off
 
-A file turns rules off for itself under the key `tela.lint.disable` in its
+A file turns rules off for itself under the key `satz.lint.disable` in its
 frontmatter, as a rule id, a comma-separated string of ids, or a list. YAML
-nesting works too: the key `tela: {lint: {disable: …}}` is the same key.
+nesting works too: the key `satz: {lint: {disable: …}}` is the same key.
 
 ```bash
 cat > docs/release.md <<'EOF'
 ---
-tela.lint.disable: [duplicate-heading]
+satz.lint.disable: [duplicate-heading]
 ---
 
 # Release
@@ -131,7 +131,7 @@ EOF
 ```
 
 ```console
-$ tela lint docs/release.md
+$ satz lint docs/release.md
 ```
 
 `duplicate-heading, outdated-reference` turns off both rules.
@@ -139,7 +139,7 @@ $ tela lint docs/release.md
 
 ## Inline rules
 
-An inline rule in `tela.toml` takes:
+An inline rule in `satz.toml` takes:
 
 | Key | Meaning |
 |---|---|
@@ -153,7 +153,7 @@ An inline rule in `tela.toml` takes:
 | `data` | data tables, as `{ banned = ["usage"] }` or a table of tables |
 
 ```bash
-cat > tela.toml <<'EOF'
+cat > satz.toml <<'EOF'
 [[lint.rules]]
 id = "short-section"
 query = '(section :level 2 :words (< $min-words)) @s'
@@ -163,7 +163,7 @@ EOF
 ```
 
 ```console
-$ tela lint
+$ satz lint
 docs/deploy.md:5:1: warning [short-section] Usage has fewer than 5 words
 docs/deploy.md:9:4: warning [duplicate-heading] heading repeated; first occurrence on line 5
 docs/deploy.md:11:1: warning [duplicate-content] paragraph duplicates docs/deploy.md:3
@@ -175,9 +175,9 @@ An inline rule holds one query; `(define …)` and `(import …)` belong to
 modules. A query that does not read points into the rule's query:
 
 ```console
-$ printf '[[lint.rules]]\nid = "bad"\nquery = "(headng) @h"\nmessage = "m"\n' > tela.toml
-$ tela lint
-tela: module "tela.toml", rule bad: unknown type "headng"
+$ printf '[[lint.rules]]\nid = "bad"\nquery = "(headng) @h"\nmessage = "m"\n' > satz.toml
+$ satz lint
+satz: module "satz.toml", rule bad: unknown type "headng"
   (headng) @h
    ^
   did you mean heading?
@@ -185,7 +185,7 @@ tela: module "tela.toml", rule bad: unknown type "headng"
 
 ## Modules
 
-A module is a Markdown file of rules, the form tela's std rules take:
+A module is a Markdown file of rules, the form satz's std rules take:
 
 ````md
 ---
@@ -238,15 +238,15 @@ A document keeps a single Usage section.
 - Blocks fenced ```` ```hq ````, the language's earlier name, read the same
   as ```` ```tq ```` blocks.
 
-Modules come in layers, each a directory of modules. `tela lint` reads two
-after tela's std modules, each when it exists:
+Modules come in layers, each a directory of modules. `satz lint` reads two
+after satz's std modules, each when it exists:
 
-- the user's, `$XDG_CONFIG_HOME/tela/lint`, else `~/.config/tela/lint`, on
+- the user's, `$XDG_CONFIG_HOME/satz/lint`, else `~/.config/satz/lint`, on
   every platform;
-- the project's, `.tela/lint` in the nearest directory above the current one
+- the project's, `.satz/lint` in the nearest directory above the current one
   that holds `.git`, else in the current directory.
 
-A program embedding tela passes its own layers; see the crate documentation.
+A program embedding satz passes its own layers; see the crate documentation.
 Rule ids and module names are unique across all layers, and nothing shadows
 anything: to change a std rule, configure it, or disable it and compose a
 replacement.
@@ -370,10 +370,10 @@ threshold = 0.5    # cosine; calibrate against accepted and rejected pairs
 directory holding `config.json`, `tokenizer.json` and `model.safetensors`.
 `$VAR` and `${VAR}` expand first, an unset variable to nothing, then a
 leading `~/` to the home directory, and a relative path resolves against the
-directory of the config file. tela downloads no models. Enabling the semantic
+directory of the config file. satz downloads no models. Enabling the semantic
 rules without a `model_path`, or with one that names no directory, is a
 config error, and a model that fails to load is an error naming it.
-`tela query --model DIR` names the model for `(similar …)`, else it reads the
+`satz query --model DIR` names the model for `(similar …)`, else it reads the
 same `model_path`.
 
 `semantic-content` reports only what `similar-content` misses: where
@@ -392,14 +392,14 @@ Inspect every changed function and report concrete failures with enough context 
 
 Inspect every changed function and report each concrete failure with enough context to reproduce it.
 EOF
-cat > tela.toml <<'EOF'
+cat > satz.toml <<'EOF'
 [lint.config.similar-content]
 similarity = 0.3
 EOF
 ```
 
 ```console
-$ tela lint docs/review.md
+$ satz lint docs/review.md
 docs/review.md:7:1: warning [similar-content] paragraph has 36.8% word-shingle jaccard with docs/review.md:3; shared phrases: changed function and; context to reproduce; enough context to; every changed function; function and report
 ```
 
@@ -412,7 +412,7 @@ and `related` locations when the rule names them. A similarity finding adds
 and a semantic one `model`.
 
 ```console
-$ tela lint docs/review.md --format json
+$ satz lint docs/review.md --format json
 [
   {
     "path": "docs/review.md",
@@ -443,10 +443,10 @@ $ tela lint docs/review.md --format json
 
 ## Examples
 
-`tela lint test` runs the Matches and Passes examples of every rule, std
+`satz lint test` runs the Matches and Passes examples of every rule, std
 and layered, each as a file of its own, and prints the examples that fail:
 
 ```console
-$ tela lint test
+$ satz lint test
 8 lint examples passed
 ```

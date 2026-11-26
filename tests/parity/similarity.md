@@ -55,10 +55,10 @@ $ henia query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :no
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.1 @s)) @b' --json
+$ satz query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (near ?t 0.1 @s)) @b' --json
 [
   {
     "?n": "000000004",
@@ -121,10 +121,10 @@ $ henia query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :no
 ]
 ```
 
-tela prints the same.
+satz prints the same.
 
 ```scrut
-$ tela query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (overlap ?t 0.1 @s)) @b' --json
+$ satz query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (overlap ?t 0.1 @s)) @b' --json
 [
   {
     "?n": "000000004",
@@ -154,7 +154,7 @@ $ tela query --path similar.md '(paragraph :node ?n :text ?t) @a (paragraph :nod
 ]
 ```
 
-Model2Vec cosine; tela's scores must agree to six decimal places, so its lines match by regex:
+Model2Vec cosine; satz's scores must agree to six decimal places, so its lines match by regex:
 
 ```scrut
 $ henia query --path similar.md --model "$PARITY_MODEL" '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (similar ?t 0.3 @s)) @b' --json
@@ -237,10 +237,10 @@ $ henia query --path similar.md --model "$PARITY_MODEL" '(paragraph :node ?n :te
 ]
 ```
 
-tela prints the same rows, scores within six decimals.
+satz prints the same rows, scores within six decimals.
 
 ```scrut
-$ tela query --path similar.md --model "$PARITY_MODEL" '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (similar ?t 0.3 @s)) @b' --json
+$ satz query --path similar.md --model "$PARITY_MODEL" '(paragraph :node ?n :text ?t) @a (paragraph :node (after ?n) :text (similar ?t 0.3 @s)) @b' --json
 [
   {
     "?n": "000000004",

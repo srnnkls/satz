@@ -1,6 +1,6 @@
-//! The `tela` command: `tela query` prints the rows a tq pattern matches in
-//! Markdown and text files, and `tela lint` checks them against tela's std
-//! rules and the inline rules of `tela.toml`. Results go to stdout and
+//! The `satz` command: `satz query` prints the rows a tq pattern matches in
+//! Markdown and text files, and `satz lint` checks them against satz's std
+//! rules and the inline rules of `satz.toml`. Results go to stdout and
 //! errors to stderr; exit status 0 is clean, 1 is failing findings and 2 a
 //! usage, query or config error.
 #![forbid(unsafe_code)]
@@ -22,13 +22,13 @@ use self::failure::Failure;
 
 /// Structural query and lint over text.
 #[derive(Debug, Parser)]
-#[command(name = "tela", version)]
+#[command(name = "satz", version)]
 struct Cli {
     #[arg(
         long,
         global = true,
         value_name = "FILE",
-        help = "The config file [default: tela.toml, if the current directory has one]"
+        help = "The config file [default: satz.toml, if the current directory has one]"
     )]
     config: Option<PathBuf>,
     #[command(subcommand)]
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
         Ok(Status::Clean) => ExitCode::SUCCESS,
         Ok(Status::Findings) => ExitCode::from(1),
         Err(failure) => {
-            eprintln!("tela: {failure}");
+            eprintln!("satz: {failure}");
             ExitCode::from(2)
         }
     }

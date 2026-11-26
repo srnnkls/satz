@@ -13,7 +13,7 @@ file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=5298b394357d989
 description = "Fetch the pinned Model2Vec model for the parity tests"
 env = { REPO = "minishlab/potion-base-2M", REV = "389b9f64be5aa4ae7a6bc6fe95ef20ce485ae5da" }
 run = '''
-DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tela/models/potion-base-2M-389b9f6"
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/satz/models/potion-base-2M-389b9f6"
 mkdir -p "$DIR"
 cat > "$DIR.sha256" <<SUMS
 b2a89173391ca774c2d7323090a993a9a1553faa5b40eb37bb7cec6685fbea47  $DIR/config.json
@@ -28,16 +28,16 @@ shasum -a 256 -c "$DIR.sha256"
 '''
 
 [tasks.cli]
-description = "Check tela's CLI contract on the scrut tests"
+description = "Check satz's CLI contract on the scrut tests"
 run = '''
-cargo build --quiet --package tela-cli
+cargo build --quiet --package satz-cli
 PATH="$PWD/target/debug:$PATH" scrut test tests/cli
 '''
 
 [tasks.parity]
-description = "Compare tela's CLI with the pinned henia's on the scrut parity tests"
+description = "Compare satz's CLI with the pinned henia's on the scrut parity tests"
 depends = ["model"]
 run = '''
-cargo build --quiet --package tela-cli
-PATH="$PWD/target/debug:$PATH" PARITY_MODEL="${XDG_CACHE_HOME:-$HOME/.cache}/tela/models/potion-base-2M-389b9f6" scrut test tests/parity
+cargo build --quiet --package satz-cli
+PATH="$PWD/target/debug:$PATH" PARITY_MODEL="${XDG_CACHE_HOME:-$HOME/.cache}/satz/models/potion-base-2M-389b9f6" scrut test tests/parity
 '''

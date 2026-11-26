@@ -67,10 +67,10 @@ $ henia query --path a01.md '(_) @n' --json
 ]
 ````
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ````scrut
-$ tela query --path a01.md '(_) @n' --json
+$ satz query --path a01.md '(_) @n' --json
 [
   {
     "n": {
@@ -212,10 +212,10 @@ $ henia query --path a02.md '(_) @n' --json
 ]
 ````
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ````scrut
-$ tela query --path a02.md '(_) @n' --json
+$ satz query --path a02.md '(_) @n' --json
 [
   {
     "n": {
@@ -392,10 +392,10 @@ $ henia query --path a03.md '(_) @n' --json
 ]
 ````
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ````scrut
-$ tela query --path a03.md '(_) @n' --json
+$ satz query --path a03.md '(_) @n' --json
 [
   {
     "n": {
@@ -563,10 +563,10 @@ $ henia query --path a04.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a04.md '(_) @n' --json
+$ satz query --path a04.md '(_) @n' --json
 [
   {
     "n": {
@@ -692,10 +692,10 @@ $ henia query --path a05.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a05.md '(_) @n' --json
+$ satz query --path a05.md '(_) @n' --json
 [
   {
     "n": {
@@ -791,10 +791,10 @@ $ henia query --path a06.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a06.md '(_) @n' --json
+$ satz query --path a06.md '(_) @n' --json
 [
   {
     "n": {
@@ -939,10 +939,10 @@ $ henia query --path a07.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a07.md '(_) @n' --json
+$ satz query --path a07.md '(_) @n' --json
 [
   {
     "n": {
@@ -1127,10 +1127,10 @@ $ henia query --path a08.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a08.md '(_) @n' --json
+$ satz query --path a08.md '(_) @n' --json
 [
   {
     "n": {
@@ -1277,10 +1277,10 @@ $ henia query --path a09.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a09.md '(_) @n' --json
+$ satz query --path a09.md '(_) @n' --json
 [
   {
     "n": {
@@ -1404,10 +1404,10 @@ $ henia query --path a10.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a10.md '(_) @n' --json
+$ satz query --path a10.md '(_) @n' --json
 [
   {
     "n": {
@@ -1521,10 +1521,10 @@ $ henia query --path a11.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a11.md '(_) @n' --json
+$ satz query --path a11.md '(_) @n' --json
 [
   {
     "n": {
@@ -1623,10 +1623,10 @@ $ henia query --path a12.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a12.md '(_) @n' --json
+$ satz query --path a12.md '(_) @n' --json
 [
   {
     "n": {
@@ -1725,10 +1725,10 @@ $ henia query --path a13.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a13.md '(_) @n' --json
+$ satz query --path a13.md '(_) @n' --json
 [
   {
     "n": {
@@ -1825,10 +1825,10 @@ $ henia query --path a14.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a14.md '(_) @n' --json
+$ satz query --path a14.md '(_) @n' --json
 [
   {
     "n": {
@@ -1922,10 +1922,10 @@ $ henia query --path a15.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a15.md '(_) @n' --json
+$ satz query --path a15.md '(_) @n' --json
 [
   {
     "n": {
@@ -2066,10 +2066,10 @@ $ henia query --path a16.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a16.md '(_) @n' --json
+$ satz query --path a16.md '(_) @n' --json
 [
   {
     "n": {
@@ -2224,10 +2224,10 @@ $ henia query --path a17.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a17.md '(_) @n' --json
+$ satz query --path a17.md '(_) @n' --json
 [
   {
     "n": {
@@ -2345,10 +2345,10 @@ $ henia query --path a18.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a18.md '(_) @n' --json
+$ satz query --path a18.md '(_) @n' --json
 [
   {
     "n": {
@@ -2566,10 +2566,10 @@ $ henia query --path a19.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a19.md '(_) @n' --json
+$ satz query --path a19.md '(_) @n' --json
 [
   {
     "n": {
@@ -2940,10 +2940,10 @@ $ henia query --path a20.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a20.md '(_) @n' --json
+$ satz query --path a20.md '(_) @n' --json
 [
   {
     "n": {
@@ -3266,10 +3266,10 @@ $ henia query --path a21.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25). satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a21.md '(_) @n' --json
+$ satz query --path a21.md '(_) @n' --json
 [
   {
     "n": {
@@ -3559,10 +3559,10 @@ $ henia query --path a22.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a22.md '(_) @n' --json
+$ satz query --path a22.md '(_) @n' --json
 [
   {
     "n": {
@@ -3779,10 +3779,10 @@ $ henia query --path a23.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a23.md '(_) @n' --json
+$ satz query --path a23.md '(_) @n' --json
 [
   {
     "n": {
@@ -3864,10 +3864,10 @@ $ henia query --path a24.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a24.md '(_) @n' --json
+$ satz query --path a24.md '(_) @n' --json
 [
   {
     "n": {
@@ -3969,10 +3969,10 @@ $ henia query --path a25.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a25.md '(_) @n' --json
+$ satz query --path a25.md '(_) @n' --json
 [
   {
     "n": {
@@ -4064,10 +4064,10 @@ $ henia query --path a26.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a26.md '(_) @n' --json
+$ satz query --path a26.md '(_) @n' --json
 [
   {
     "n": {
@@ -4187,10 +4187,10 @@ $ henia query --path a27.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a27.md '(_) @n' --json
+$ satz query --path a27.md '(_) @n' --json
 [
   {
     "n": {
@@ -4327,10 +4327,10 @@ $ henia query --path a28.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a28.md '(_) @n' --json
+$ satz query --path a28.md '(_) @n' --json
 [
   {
     "n": {
@@ -4488,10 +4488,10 @@ $ henia query --path a29.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
+satz prints the same rows with the AD-20 fixes; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
-$ tela query --path a29.md '(_) @n' --json
+$ satz query --path a29.md '(_) @n' --json
 [
   {
     "n": {
@@ -4669,10 +4669,10 @@ $ henia query --path a30.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a30.md '(_) @n' --json
+$ satz query --path a30.md '(_) @n' --json
 [
   {
     "n": {
@@ -4827,10 +4827,10 @@ $ henia query --path a31.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a31.md '(_) @n' --json
+$ satz query --path a31.md '(_) @n' --json
 [
   {
     "n": {
@@ -4956,10 +4956,10 @@ $ henia query --path a32.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a32.md '(_) @n' --json
+$ satz query --path a32.md '(_) @n' --json
 [
   {
     "n": {
@@ -5149,10 +5149,10 @@ $ henia query --path a33.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a33.md '(_) @n' --json
+$ satz query --path a33.md '(_) @n' --json
 [
   {
     "n": {
@@ -5371,10 +5371,10 @@ $ henia query --path a34.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a34.md '(_) @n' --json
+$ satz query --path a34.md '(_) @n' --json
 [
   {
     "n": {
@@ -5490,10 +5490,10 @@ $ henia query --path a35.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a35.md '(_) @n' --json
+$ satz query --path a35.md '(_) @n' --json
 [
   {
     "n": {
@@ -5590,10 +5590,10 @@ $ henia query --path a36.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
+satz prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
-$ tela query --path a36.md '(_) @n' --json
+$ satz query --path a36.md '(_) @n' --json
 [
   {
     "n": {
@@ -5732,10 +5732,10 @@ $ henia query --path a37.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a37.md '(_) @n' --json
+$ satz query --path a37.md '(_) @n' --json
 [
   {
     "n": {
@@ -5925,10 +5925,10 @@ $ henia query --path a38.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a38.md '(_) @n' --json
+$ satz query --path a38.md '(_) @n' --json
 [
   {
     "n": {
@@ -6104,10 +6104,10 @@ $ henia query --path a39.md '(_) @n' --json
 ]
 ````
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ````scrut
-$ tela query --path a39.md '(_) @n' --json
+$ satz query --path a39.md '(_) @n' --json
 [
   {
     "n": {
@@ -6233,10 +6233,10 @@ $ henia query --path a40.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a40.md '(_) @n' --json
+$ satz query --path a40.md '(_) @n' --json
 [
   {
     "n": {
@@ -6369,10 +6369,10 @@ $ henia query --path a41.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a41.md '(_) @n' --json
+$ satz query --path a41.md '(_) @n' --json
 [
   {
     "n": {
@@ -6491,10 +6491,10 @@ $ henia query --path a42.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only. tela writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
+satz prints the same rows; the file node carries `path` only. satz writes `<`, `>` and `&` as is where Go escapes them as `\u003c`, `\u003e` and `\u0026` (AD-25).
 
 ```scrut
-$ tela query --path a42.md '(_) @n' --json
+$ satz query --path a42.md '(_) @n' --json
 [
   {
     "n": {
@@ -6587,10 +6587,10 @@ $ henia query --path a43.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a43.md '(_) @n' --json
+$ satz query --path a43.md '(_) @n' --json
 [
   {
     "n": {
@@ -6672,10 +6672,10 @@ $ henia query --path a44.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a44.md '(_) @n' --json
+$ satz query --path a44.md '(_) @n' --json
 [
   {
     "n": {
@@ -6756,10 +6756,10 @@ $ henia query --path a45.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only.
 
 ```scrut
-$ tela query --path a45.md '(_) @n' --json
+$ satz query --path a45.md '(_) @n' --json
 [
   {
     "n": {
@@ -6885,10 +6885,10 @@ $ henia query --path a46.md '(_) @n' --json
 ]
 ```
 
-tela prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
+satz prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
-$ tela query --path a46.md '(_) @n' --json
+$ satz query --path a46.md '(_) @n' --json
 [
   {
     "n": {

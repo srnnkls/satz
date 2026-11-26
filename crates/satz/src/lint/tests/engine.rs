@@ -135,7 +135,7 @@ fn examples_type_their_settings_as_the_rule_declares() {
 
 const ALPHA: &str = "---
 name: alpha
-description: Fixture skill on which every tela rule fires.
+description: Fixture skill on which every satz rule fires.
 ---
 
 # Alpha
@@ -768,9 +768,9 @@ fn params_no_module_sets_come_from_the_environment() {
 #[test]
 fn files_disable_rules_through_the_disable_key() {
     let nested = "---\nname: guide\ndescription: A guide skill for tests.\nhenia:\n  lint:\n    disable: [duplicate-heading]\n---\n\n# Guide\n\n## Usage\n\n## Usage\n";
-    let flat = "---\ntela.lint.disable: duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
+    let flat = "---\nsatz.lint.disable: duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
     let listed =
-        "---\ntela.lint.disable: empty-section, duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
+        "---\nsatz.lint.disable: empty-section, duplicate-heading\n---\n\n## Usage\n\n## Usage\n";
     let other = "---\nname: other\ndescription: Another skill for tests.\n---\n\n# Other\n\n## Usage\n\n## Usage\n";
     let files = [
         ("guide.md", nested),

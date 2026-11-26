@@ -25,7 +25,7 @@ enum Meta {
 /// Why a header was rejected.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Fault {
-    /// A key neither tela nor the caller declares.
+    /// A key neither satz nor the caller declares.
     UnknownKey(String),
     /// A value of the wrong shape, or YAML the header cannot take.
     Invalid(String),
@@ -33,7 +33,7 @@ pub(super) enum Fault {
 
 impl Header {
     /// Reads the YAML document of a module's frontmatter, accepting
-    /// `meta_keys` beyond tela's own `description`, `params` and `data`.
+    /// `meta_keys` beyond satz's own `description`, `params` and `data`.
     pub(super) fn read(
         root: Option<&YamlNode>,
         meta_keys: &BTreeSet<String>,

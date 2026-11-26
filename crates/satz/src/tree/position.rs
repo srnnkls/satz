@@ -105,7 +105,7 @@ impl Position {
 
 /// Where a node comes from: its file and its position in that file's source.
 ///
-/// Every position tela reports reads the origin; a node's own
+/// Every position satz reports reads the origin; a node's own
 /// [`Node::position`](super::Node::position) stays relative to the parsed text.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Origin {

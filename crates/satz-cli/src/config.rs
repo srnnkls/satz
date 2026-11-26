@@ -1,4 +1,4 @@
-//! `tela.toml`: the `[lint]` table, read into [`Settings`] and the
+//! `satz.toml`: the `[lint]` table, read into [`Settings`] and the
 //! semantic model's directory.
 
 use std::collections::BTreeMap;
@@ -7,16 +7,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use satz::lint::{InlineRule, RuleConfig, RuleId, Settings, Severity};
+use satz::query::{Table, Value};
+use satz::similarity::Model2Vec;
 use serde::Deserialize;
-use tela::lint::{InlineRule, RuleConfig, RuleId, Settings, Severity};
-use tela::query::{Table, Value};
-use tela::similarity::Model2Vec;
 
 use crate::failure::Failure;
 
-pub(crate) const DEFAULT: &str = "tela.toml";
+pub(crate) const DEFAULT: &str = "satz.toml";
 
-/// What `tela.toml` configures.
+/// What `satz.toml` configures.
 #[derive(Debug, Default)]
 pub(crate) struct Config {
     /// The lint settings.
@@ -27,7 +27,7 @@ pub(crate) struct Config {
 }
 
 /// Where the config comes from: the file `--config` names, which must exist,
-/// or `tela.toml` in the current directory, if there is one.
+/// or `satz.toml` in the current directory, if there is one.
 #[derive(Debug)]
 pub(crate) struct Source {
     named: Option<PathBuf>,
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn defaults_without_lint_table() {
         let config = parse("").unwrap();
-        assert_eq!(config.settings.disable_key, "tela.lint.disable");
+        assert_eq!(config.settings.disable_key, "satz.lint.disable");
         assert!(!config.settings.semantic);
         assert_eq!(config.model, None);
     }

@@ -1,9 +1,9 @@
-//! `tela lint`: tela's std rules, the lint modules of the user's and the
-//! project's layers and `tela.toml`'s inline rules over files, and
-//! `tela lint test`, which runs every rule's examples.
+//! `satz lint`: satz's std rules, the lint modules of the user's and the
+//! project's layers and `satz.toml`'s inline rules over files, and
+//! `satz lint test`, which runs every rule's examples.
 //!
-//! The user's layer is `$XDG_CONFIG_HOME/tela/lint`, or `~/.config/tela/lint`;
-//! the project's is `.tela/lint` in the nearest directory holding `.git`, or
+//! The user's layer is `$XDG_CONFIG_HOME/satz/lint`, or `~/.config/satz/lint`;
+//! the project's is `.satz/lint` in the nearest directory holding `.git`, or
 //! else in the current directory.
 
 use std::env;
@@ -13,14 +13,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use serde::{Serialize, Serializer};
-use tela::lint::{
+use satz::lint::{
     CompileError, Config, Corpus, Diagnostic, Expect, Layer, Outcome, Plan, RuleId, Score,
     Selection, Settings, Severity, Spec,
 };
-use tela::markdown::Markdown;
-use tela::query::Environment;
-use tela::{Frontend, Origin};
+use satz::markdown::Markdown;
+use satz::query::Environment;
+use satz::{Frontend, Origin};
+use serde::{Serialize, Serializer};
 
 use crate::config::{self, Source};
 use crate::failure::Failure;
@@ -125,13 +125,13 @@ fn layers() -> Result<Vec<Layer>, Failure> {
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| env::home_dir().map(|home| home.join(".config")))
-        .map(|dir| dir.join("tela/lint"));
+        .map(|dir| dir.join("satz/lint"));
     let cwd = env::current_dir()?;
     let project = cwd
         .ancestors()
         .find(|dir| dir.join(".git").exists())
         .unwrap_or(&cwd)
-        .join(".tela/lint");
+        .join(".satz/lint");
     user.into_iter()
         .chain([project])
         .filter(|dir| dir.is_dir())
@@ -194,7 +194,7 @@ fn test(plan: &Plan, environment: &Environment, out: &mut impl Write) -> Result<
         }
     }
     if failed > 0 {
-        eprintln!("tela: {failed} of {} lint examples failed", examples.len());
+        eprintln!("satz: {failed} of {} lint examples failed", examples.len());
         return Ok(Status::Findings);
     }
     writeln!(out, "{} lint examples passed", examples.len())?;
