@@ -1,7 +1,7 @@
 # satz lint
 
 `satz lint` checks Markdown and text files with rules written as
-[tq](query.md) queries. Each row a rule's query matches becomes a finding.
+[sq](query.md) queries. Each row a rule's query matches becomes a finding.
 The [std rules](rules.md) run by default, [modules](#modules) in the
 project's and the user's lint directories add rules, and `satz.toml` tunes
 them all and adds rules of its own.
@@ -144,7 +144,7 @@ An inline rule in `satz.toml` takes:
 | Key | Meaning |
 |---|---|
 | `id` | the rule id |
-| `query` | a tq query; its captures locate the finding |
+| `query` | a sq query; its captures locate the finding |
 | `message` | the message, with placeholders as in [Rule keys](#rule-keys) |
 | `severity` | `warning` (default) or `error` |
 | `at` | the captures to locate at, as in `"@l @p"`; the first that matched wins, else the query's first capture |
@@ -197,7 +197,7 @@ data:
 
 A document keeps a single Usage section.
 
-```tq
+```sq
 (import std/structure)
 
 (rule repeated-usage
@@ -228,15 +228,15 @@ A document keeps a single Usage section.
   the module. Any other key is an error, unless the program loading the
   module declares it.
 - Each `## <rule-id>` section explains its rule in prose, defines it in a
-  ```` ```tq ```` block, and tests it with ```` ```md ```` examples under
+  ```` ```sq ```` block, and tests it with ```` ```md ```` examples under
   `### Matches` and `### Passes`. A Matches example must make its rule
   report; a Passes example must not.
 - An example overrides params and data in its fence info, as in
   ```` ```md min-words=3 ```` or ```` ```md outdated.legacy=current ````.
 - The module name is its path relative to its layer, without `.md`, as in
   `team/headings`, under the layer's package name when it has one.
-- Blocks fenced ```` ```hq ````, the language's earlier name, read the same
-  as ```` ```tq ```` blocks.
+- Blocks fenced ```` ```tq ```` or ```` ```hq ````, the language's earlier
+  names, read the same as ```` ```sq ```` blocks.
 
 Modules come in layers, each a directory of modules. `satz lint` reads two
 after satz's std modules, each when it exists:
@@ -296,7 +296,7 @@ every rule that found something and names each file it wrote on stderr:
 
 Headings are not written in capitals.
 
-```tq
+```sq
 (rule shouting-heading :message "heading {@h.text} shouts"
   (heading :level ?l :text /^[A-Z ]+$/) @h
   (replace @h "{?l|times:#} {@h.text|capitalize}"))
@@ -319,7 +319,7 @@ params:
 
 A file holds at most `max-code` code blocks.
 
-```tq
+```sq
 (rule code-heavy
   :message "{@f.path} has {@n} code blocks; at most {$max-code}"
   :at @f
@@ -347,7 +347,7 @@ data:
 
 A Conventions table has a row per axis.
 
-```tq
+```sq
 (rule missing-axis
   :message "Conventions has no {?axis} row"
   :at @s

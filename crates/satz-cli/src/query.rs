@@ -1,4 +1,4 @@
-//! `satz query`: rows of a tq pattern over files, as a listing, whole node
+//! `satz query`: rows of a sq pattern over files, as a listing, whole node
 //! texts, JSON or a count.
 
 use std::collections::BTreeMap;
@@ -23,7 +23,7 @@ const SNIPPET: usize = 80;
 #[derive(Debug, clap::Args)]
 #[command(group = clap::ArgGroup::new("output").args(["json", "text", "count", "write"]))]
 pub(crate) struct Args {
-    /// The tq pattern.
+    /// The sq pattern.
     pattern: String,
     /// A file or directory to read instead of the current directory
     /// (repeatable).

@@ -261,7 +261,7 @@ pub(super) fn inline(rule: &InlineRule, spec: &Spec) -> Result<Group, CompileErr
     })
 }
 
-/// `text` as a tq string.
+/// `text` as a sq string.
 fn quote(text: &str) -> String {
     let mut quoted = String::with_capacity(text.len() + 2);
     quoted.push('"');
@@ -287,15 +287,15 @@ struct Block {
     line: u32,
 }
 
-/// The module's `tq` blocks, and `hq` blocks as the earlier name, joined
-/// into one source, with where each starts.
+/// The module's `sq` blocks, and `tq` and `hq` blocks as earlier names,
+/// joined into one source, with where each starts.
 fn query_source(tree: &Tree) -> (String, Vec<Block>) {
     let mut source = String::new();
     let mut blocks = Vec::new();
     for code in tree
         .root()
         .descendants()
-        .filter(|node| fenced(*node, &["tq", "hq"]))
+        .filter(|node| fenced(*node, &["sq", "tq", "hq"]))
     {
         blocks.push(Block {
             start: source.len(),

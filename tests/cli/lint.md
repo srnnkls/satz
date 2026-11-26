@@ -202,7 +202,7 @@ Lint modules in the project's `.satz/lint` and the user's `$XDG_CONFIG_HOME/satz
 $ mkdir -p .satz/lint config/satz/lint && cat > .satz/lint/build.md <<'EOF'
 > ## no-make
 >
-> ```tq
+> ```sq
 > (rule no-make :message "use the mise task, not {@c.text}" (code :inline true :matches /^make\b/) @c)
 > ```
 >

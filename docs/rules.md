@@ -72,7 +72,7 @@ The rule compares each paragraph of at least `min-words` words with the
 earliest earlier paragraph that reaches a threshold and reports it there:
 
 - `similarity` is the Jaccard share of three-word shingles the two
-  paragraphs have in common, as `(near …)` in [tq](query.md#values);
+  paragraphs have in common, as `(near …)` in [sq](query.md#values);
 - `containment` is the share of the shorter paragraph's shingles the other
   holds, as `(overlap …)`, which catches a paragraph copied into a longer
   one.

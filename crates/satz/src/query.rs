@@ -1,4 +1,4 @@
-//! Structural queries in tq: the schema, environment, and the query
+//! Structural queries in sq: the schema, environment, and the query
 //! and row types its reader and matcher exchange.
 //!
 //! `:matches` and `/regexp/` values compile with the [`regex`] crate. The

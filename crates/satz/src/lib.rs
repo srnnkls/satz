@@ -1,11 +1,11 @@
 //! Structural query and lint over text.
 //!
 //! A [`Frontend`] parses a file format into a [`Tree`] of nodes, a
-//! [`query::Query`] written in tq matches that tree, and a lint
+//! [`query::Query`] written in sq matches that tree, and a lint
 //! [`lint::Plan`] turns the rows of its rules' queries into
 //! [`lint::Diagnostic`]s. The core reads only trees; Markdown
 //! ([`markdown::Markdown`]) and plain text ([`plain::Plain`]) are its
-//! frontends. The tq language and the lint module format are documented in
+//! frontends. The sq language and the lint module format are documented in
 //! the repository's `docs/query.md` and `docs/lint.md`.
 //!
 //! # Frontends and trees
@@ -23,7 +23,7 @@
 //!
 //! # Queries
 //!
-//! [`query::Query::read`] reads tq against a [`query::Schema`];
+//! [`query::Query::read`] reads sq against a [`query::Schema`];
 //! [`query::Query::run`] matches it over a shared tree in a
 //! [`query::Environment`], which holds everything the
 //! caller knows in advance: `$param` values, data tables, the semantic model
@@ -94,7 +94,7 @@
 //! const MODULE: &str = r#"
 //! ## no-make
 //!
-//! ```tq
+//! ```sq
 //! (rule no-make
 //!   :message "use the mise task, not {@c.text}"
 //!   (code :inline true :matches /^make\b/) @c)
@@ -121,7 +121,7 @@
 //! ````
 //!
 //! A module is named by its path without `.md`, under its layer's package:
-//! the rule above comes from `team/build`. Its rules live in `tq` code
+//! the rule above comes from `team/build`. Its rules live in `sq` code
 //! blocks; `hq` blocks read the same. [`lint::Layer::read_dir`] builds a
 //! layer from a directory. Module frontmatter keys the [`lint::Spec`]
 //! declares come back raw per rule in [`lint::Plan::rules`]; any other
