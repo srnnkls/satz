@@ -118,24 +118,21 @@ model_path = "/path/to/potion-base-2M"
 
 [lint.config.semantic-content]
 threshold = 0.5
-similarity = 0.3
 ```
 
-Its own `similarity` and `containment` params leave out the paragraphs that
-are lexically similar to an earlier one; set them to the values
-`similar-content` uses, so a pair is reported by one rule. A finding carries
-the cosine score and the model, and its message asks for a review of meaning
-and constraints: embeddings lose word order, so a negated sentence can score
-higher than a paraphrase.
+A paragraph `similar-content` reports under its own config is left out, so a
+pair is reported by one rule; see [Similarity](lint.md#similarity). A
+finding carries the cosine score and the model, and its message asks for a
+review of meaning and constraints: embeddings lose word order, so a negated
+sentence can score higher than a paraphrase.
 
 ## outdated-reference
 
 Names listed in the `outdated` table, each mapped to its replacement. The
 rule reports every paragraph, heading and table whose text contains an
-outdated name, ignoring case, located at the name's first occurrence as
-listed, else at the node. The
-text is the Markdown as written, so code spans and link destinations
-count; code blocks do not.
+outdated name, ignoring case, located at the name's first occurrence in
+any case. The text is the Markdown as written, so code spans and link
+destinations count; code blocks do not.
 
 ```bash
 cat > docs/models.md <<'EOF'

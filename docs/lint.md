@@ -2,8 +2,9 @@
 
 `tela lint` checks Markdown and text files with rules written as
 [tq](query.md) queries. Each row a rule's query matches becomes a finding.
-The [std rules](rules.md) run by default, and `tela.toml` tunes them and adds
-rules of its own.
+The [std rules](rules.md) run by default, [modules](#modules) in the
+project's and the user's lint directories add rules, and `tela.toml` tunes
+them all and adds rules of its own.
 
 Make a document with two problems:
 
@@ -112,8 +113,8 @@ ordered by file, line, column, rule and message, each once.
 ## Turning rules off
 
 A file turns rules off for itself under the key `tela.lint.disable` in its
-frontmatter, as a single rule id or a list. YAML nesting works too: the
-key `tela: {lint: {disable: …}}` is the same key.
+frontmatter, as a rule id, a comma-separated string of ids, or a list. YAML
+nesting works too: the key `tela: {lint: {disable: …}}` is the same key.
 
 ```bash
 cat > docs/release.md <<'EOF'
@@ -133,9 +134,8 @@ EOF
 $ tela lint docs/release.md
 ```
 
-A string of several ids, such as `duplicate-heading, outdated-reference`, is
-one value and names no rule. `[lint] disable_key = "lint.off"` reads
-another key instead.
+`duplicate-heading, outdated-reference` turns off both rules.
+`[lint] disable_key = "lint.off"` reads another key instead.
 
 ## Inline rules
 
@@ -172,7 +172,16 @@ docs/release.md:9:1: warning [short-section] Steps has fewer than 5 words
 ```
 
 An inline rule holds one query; `(define …)` and `(import …)` belong to
-modules.
+modules. A query that does not read points into the rule's query:
+
+```console
+$ printf '[[lint.rules]]\nid = "bad"\nquery = "(headng) @h"\nmessage = "m"\n' > tela.toml
+$ tela lint
+tela: module "tela.toml", rule bad: unknown type "headng"
+  (headng) @h
+   ^
+  did you mean heading?
+```
 
 ## Modules
 
@@ -188,7 +197,7 @@ data:
 
 A document keeps a single Usage section.
 
-```hq
+```tq
 (import std/structure)
 
 (rule repeated-usage
@@ -219,20 +228,28 @@ A document keeps a single Usage section.
   the module. Any other key is an error, unless the program loading the
   module declares it.
 - Each `## <rule-id>` section explains its rule in prose, defines it in a
-  ```` ```hq ```` block, and tests it with ```` ```md ```` examples under
+  ```` ```tq ```` block, and tests it with ```` ```md ```` examples under
   `### Matches` and `### Passes`. A Matches example must make its rule
   report; a Passes example must not.
 - An example overrides params and data in its fence info, as in
   ```` ```md min-words=3 ```` or ```` ```md outdated.legacy=current ````.
 - The module name is its path relative to its layer, without `.md`, as in
   `team/headings`, under the layer's package name when it has one.
+- Blocks fenced ```` ```hq ````, the language's earlier name, read the same
+  as ```` ```tq ```` blocks.
 
-Modules come in layers, each a directory of modules. A program embedding
-tela passes its layers in order after tela's std modules; see the crate
-documentation. Rule ids and module names are unique across all layers, and
-nothing shadows anything: to change a std rule, configure it, or disable it
-and compose a replacement. `tela lint` itself runs the std modules and the
-inline rules of `tela.toml`.
+Modules come in layers, each a directory of modules. `tela lint` reads two
+after tela's std modules, each when it exists:
+
+- the user's, `$XDG_CONFIG_HOME/tela/lint`, else `~/.config/tela/lint`, on
+  every platform;
+- the project's, `.tela/lint` in the nearest directory above the current one
+  that holds `.git`, else in the current directory.
+
+A program embedding tela passes its own layers; see the crate documentation.
+Rule ids and module names are unique across all layers, and nothing shadows
+anything: to change a std rule, configure it, or disable it and compose a
+replacement.
 
 ### Forms
 
@@ -258,7 +275,7 @@ joins each banned title with the headings that repeat it.
 | `:message` | text with `{@c}` (path:line), `{@c.line}`, `{@c.column}`, `{@c.text}`, `{@c.lines}`, `{@c.KEY}`, a value capture `{@n}`, `{@n.percent}` or `{@n.3}`, `{?var}`, `{$param}` and `{shared}` |
 | `:at @a @b` | location: the first of these captures that matched; else the query's first capture |
 | `:related @c ...` | related location, chosen the same way |
-| `:focus ?var` | moves the location to the variable's first occurrence in the node's text |
+| `:focus ?var` | moves the location to the variable's first occurrence in the node's text, matched case-insensitively as `:contains` matches |
 | `:score @capture` | fills `similarity` from a score capture |
 | `:method name` | `jaccard`, `containment` or `cosine`; fills `method`, and a `:score` needs it |
 | `:shared @a @b` | fills `shared_phrases` and `{shared}` with up to five shared phrases |
@@ -282,7 +299,7 @@ params:
 
 A file holds at most `max-code` code blocks.
 
-```hq
+```tq
 (rule code-heavy
   :message "{@f.path} has {@n} code blocks; at most {$max-code}"
   :at @f
@@ -310,7 +327,7 @@ data:
 
 A Conventions table has a row per axis.
 
-```hq
+```tq
 (rule missing-axis
   :message "Conventions has no {?axis} row"
   :at @s
@@ -347,20 +364,23 @@ model_path = "/path/to/potion-base-2M"
 
 [lint.config.semantic-content]
 threshold = 0.5    # cosine; calibrate against accepted and rejected pairs
-similarity = 0.3   # leave out what similar-content reports
 ```
 
 `model_path` names a local [Model2Vec](https://github.com/MinishLab/model2vec)
-directory holding `config.json`, `tokenizer.json` and `model.safetensors`. A
-relative path resolves against the current directory; `~` and `$VAR` are not
-expanded. tela downloads no models. Enabling the semantic rules without a
-`model_path` is a config error, and a model that fails to load is an error
-naming it. `tela query --model DIR` names the model for `(similar …)`, else
-it reads the same `model_path`.
+directory holding `config.json`, `tokenizer.json` and `model.safetensors`.
+`$VAR` and `${VAR}` expand first, an unset variable to nothing, then a
+leading `~/` to the home directory, and a relative path resolves against the
+directory of the config file. tela downloads no models. Enabling the semantic
+rules without a `model_path`, or with one that names no directory, is a
+config error, and a model that fails to load is an error naming it.
+`tela query --model DIR` names the model for `(similar …)`, else it reads the
+same `model_path`.
 
-`semantic-content` leaves out the paragraphs lexically similar to an earlier
-one under its own `similarity` and `containment` params, which stay 0, and so
-leave nothing out, until set under `[lint.config.semantic-content]`.
+`semantic-content` reports only what `similar-content` misses: where
+`similar-content` reports a paragraph under its own config, the
+`semantic-content` finding at that paragraph is left out. More generally,
+within one module a finding scored by cosine is left out where a finding
+scored by `jaccard` or `containment` points at the same place.
 
 ```bash
 cat > docs/review.md <<'EOF'
@@ -423,8 +443,8 @@ $ tela lint docs/review.md --format json
 
 ## Examples
 
-`tela lint test` runs every rule's Matches and Passes examples, each as a
-file of its own, and prints the examples that fail:
+`tela lint test` runs the Matches and Passes examples of every rule, std
+and layered, each as a file of its own, and prints the examples that fail:
 
 ```console
 $ tela lint test

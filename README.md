@@ -64,8 +64,8 @@ guide.md:9:4: warning [duplicate-heading] heading repeated; first occurrence on 
 
 - [tela query](docs/query.md): the tq language, its node types, values,
   captures, grouping, output and regular expressions.
-- [tela lint](docs/lint.md): `tela.toml`, inline rules, rule modules,
-  similarity and JSON output.
+- [tela lint](docs/lint.md): `tela.toml`, inline rules, rule modules and
+  their layers, similarity and JSON output.
 - [Std rules](docs/rules.md): the rules tela ships.
 - The library: `cargo doc -p tela --open` documents embedding tela, with
   frontends, trees, queries, lint plans and semantic models.

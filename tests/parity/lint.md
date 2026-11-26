@@ -294,3 +294,5 @@ $ tela lint --format json
   }
 ]
 ```
+
+Three lint behaviours diverge from henia on purpose and have no case here, since henia would report differently: a disable-key value of comma-separated ids such as `duplicate-heading, outdated-reference` turns off each rule, where henia reads it as one id; `:focus` finds its variable case-insensitively, as `:contains` matched it, where henia searches case-sensitively and falls back to the node's start; and `semantic-content` drops the finding above.

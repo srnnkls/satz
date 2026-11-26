@@ -138,7 +138,8 @@ Every type also takes these keys:
 
 - `:text "exact"`, `:contains "case-insensitive"` and `:matches /regexp/`;
 - `:words` and `:chars`, word and character counts, and `:lines`, the line
-  count;
+  count. A file counts its body, the text its frontend read without the
+  frontmatter, though its own `:text` is empty;
 - `:norm`, the text lower-cased with whitespace collapsed;
 - `:node`, an id in document order;
 - `:position`, the file path, then the offset;
@@ -261,7 +262,7 @@ comment  := ";" to the end of the line
 - The relations `(reaches P)`, `(inbound P)`, `(to P)` and `(from P)` follow
   links between units, the node type a program embedding tela registers in its
   schema together with the link targets. `tela query` registers no unit, so a
-  relation matches nothing there.
+  query using a relation is an error there.
 
 ```console
 $ tela query '(list . (item) @first)'
@@ -396,7 +397,7 @@ It rejects:
 
 `:matches` and `/regexp/` values compile with the Rust
 [`regex`](https://docs.rs/regex) crate. Its syntax is RE2's, the syntax of
-Go's `regexp` and of henia's patterns, with these differences:
+Go's `regexp`, with these differences:
 
 - `\d`, `\w`, `\s` and `\b` are Unicode-aware: `\d` matches `٣` and `\w`
   matches `é`. Write `[0-9]` or `(?-u:\w)` for RE2's ASCII classes.
