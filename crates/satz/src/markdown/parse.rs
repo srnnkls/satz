@@ -6,9 +6,8 @@ use markdown_it::links::LinkFormatter;
 
 use super::attributes::Fault;
 use super::builder::{self, Element};
-use super::directive;
 use super::frontmatter::{self, Frontmatter};
-use super::mapping;
+use super::{Document, Parsed, directive, document, mapping, render};
 use crate::frontend::Frontend;
 use crate::tree::{Node, NodeId, Origin, Position, Tree};
 
@@ -20,21 +19,73 @@ use crate::tree::{Node, NodeId, Origin, Position, Tree};
 /// sections and blocks. Node positions are relative to the body; origins are
 /// source positions.
 pub struct Markdown {
-    pub(super) parser: MarkdownIt,
+    rules: Vec<Arc<dyn super::InlineRule>>,
+    pub(super) parsers: Arc<Parsers>,
+}
+
+/// The parsers of a frontend, which its documents keep for rendering.
+pub(super) struct Parsers {
+    /// Reads Markdown bodies.
+    pub(super) body: MarkdownIt,
+    /// Reads directive labels: paragraphs of inline Markdown, no other
+    /// blocks.
+    pub(super) labels: MarkdownIt,
+    /// The characters the registered inline rules start with.
+    pub(super) triggers: Vec<char>,
+}
+
+impl Parsers {
+    fn new(rules: &[Arc<dyn super::InlineRule>]) -> Self {
+        let mut body = MarkdownIt::empty();
+        markdown_it::plugins::cmark::add(&mut body);
+        mapping::add(&mut body);
+        markdown_it::plugins::html::add(&mut body);
+        markdown_it::plugins::extra::tables::add(&mut body);
+        directive::add(&mut body);
+        directive::add_rules(&mut body, rules);
+        body.link_formatter = Box::new(RawLinks);
+        let mut labels = render::labels();
+        directive::add_rules(&mut labels, rules);
+        Self {
+            body,
+            labels,
+            triggers: rules.iter().map(|rule| rule.trigger()).collect(),
+        }
+    }
 }
 
 impl Markdown {
     /// A frontend with its parser built once for every file it reads.
     #[must_use]
     pub fn new() -> Self {
-        let mut parser = MarkdownIt::empty();
-        markdown_it::plugins::cmark::add(&mut parser);
-        mapping::add(&mut parser);
-        markdown_it::plugins::html::add(&mut parser);
-        markdown_it::plugins::extra::tables::add(&mut parser);
-        directive::add(&mut parser);
-        parser.link_formatter = Box::new(RawLinks);
-        Self { parser }
+        Self {
+            rules: Vec::new(),
+            parsers: Arc::new(Parsers::new(&[])),
+        }
+    }
+
+    /// The frontend with `rule` registered after the rules it has: its
+    /// trees, and the documents and renderings of [`Markdown::document`],
+    /// read the text `rule` claims as an inline directive.
+    #[must_use]
+    pub fn with_inline_rule(mut self, rule: Arc<dyn super::InlineRule>) -> Self {
+        self.rules.push(rule);
+        self.parsers = Arc::new(Parsers::new(&self.rules));
+        self
+    }
+
+    /// Parses the Markdown body `text` of `file` into an editable document,
+    /// as [`Document::parse`] does, with this frontend's inline rules.
+    #[must_use]
+    pub fn document(&self, file: &str, text: &str) -> Parsed<Document> {
+        document::parse(self, file, text)
+    }
+
+    /// An empty document for `file`, as [`Document::new`] makes, whose
+    /// renderings apply this frontend's inline rules.
+    #[must_use]
+    pub fn empty_document(&self, file: impl Into<String>) -> Document {
+        Document::empty(file.into(), Arc::clone(&self.parsers))
     }
 }
 
@@ -83,7 +134,7 @@ impl Frontend for Markdown {
         if let Some(head) = &frontmatter {
             append_frontmatter(&mut tree, root, &file, text, head);
         }
-        let doc = self.parser.parse(body);
+        let doc = self.parsers.body.parse(body);
         let nuls = Nuls::new(body);
         let faults = directive::faults(&doc);
         if !faults.is_empty() {
@@ -286,6 +337,9 @@ impl Place<'_> {
             ),
         );
         node.attrs = element.attrs;
+        if let Some(label) = element.label {
+            node.attrs.insert("label".to_owned(), label);
+        }
         node.text = element.text;
         node.position = position;
         let Ok(id) = tree.append(parent, node) else {
@@ -833,5 +887,144 @@ mod tests {
             let node = find(&tree, kind)[nth].node();
             assert_eq!(node.text, want, "{text:?}");
         }
+    }
+
+    #[derive(Debug)]
+    struct Sigil;
+
+    impl crate::markdown::InlineRule for Sigil {
+        fn trigger(&self) -> char {
+            '$'
+        }
+
+        fn claim(&self, src: &str) -> Option<crate::markdown::Claim> {
+            let name = src.strip_prefix('$')?;
+            let len = name
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(name.len());
+            (len > 0).then(|| crate::markdown::Claim {
+                len: 1 + len,
+                name: "ref".into(),
+                label: name[..len].into(),
+                attrs: [("via".to_owned(), "sigil".to_owned())]
+                    .into_iter()
+                    .collect(),
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct Greedy;
+
+    impl crate::markdown::InlineRule for Greedy {
+        fn trigger(&self) -> char {
+            ':'
+        }
+
+        fn claim(&self, src: &str) -> Option<crate::markdown::Claim> {
+            let len = src.find(char::is_whitespace).unwrap_or(src.len());
+            (len > 1).then(|| crate::markdown::Claim {
+                len,
+                name: "sugar".into(),
+                label: src[1..len].into(),
+                attrs: std::iter::empty().collect(),
+            })
+        }
+    }
+
+    #[test]
+    fn registered_inline_rules_yield_directives_at_their_source() {
+        let text = "---\na: 1\n---\nSee $git and :ref[git]{via=sigil} or :ref[**x** y].\n";
+        let plain = parse(text);
+        let tree = Markdown::new()
+            .with_inline_rule(Arc::new(Sigil))
+            .parse("a.md", text);
+        assert_eq!(problems(&tree), Vec::<String>::new());
+        let body = &tree.root().node().body;
+        let directives: Vec<_> = find(&tree, "directive")
+            .into_iter()
+            .map(|n| {
+                let d = n.node();
+                let span = d.position.as_ref().map(Position::span).unwrap_or_default();
+                (
+                    d.kind.clone(),
+                    d.attrs.clone(),
+                    body[span].to_owned(),
+                    d.origin.to_string(),
+                )
+            })
+            .collect();
+        let attrs = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect()
+        };
+        let sigil = attrs(&[
+            ("inline", "true"),
+            ("label", "git"),
+            ("name", "ref"),
+            ("via", "sigil"),
+        ]);
+        assert_eq!(
+            directives,
+            [
+                (
+                    "directive".to_owned(),
+                    sigil.clone(),
+                    "$git".to_owned(),
+                    "a.md:4:5".to_owned()
+                ),
+                (
+                    "directive".to_owned(),
+                    sigil,
+                    ":ref[git]{via=sigil}".to_owned(),
+                    "a.md:4:14".to_owned()
+                ),
+                (
+                    "directive".to_owned(),
+                    attrs(&[("inline", "true"), ("label", "**x** y"), ("name", "ref")]),
+                    ":ref[**x** y]".to_owned(),
+                    "a.md:4:38".to_owned()
+                ),
+            ]
+        );
+        assert_eq!(
+            find(&plain, "directive").len(),
+            2,
+            "a rule of one instance only"
+        );
+    }
+
+    #[test]
+    fn built_in_directives_run_before_registered_rules() {
+        let tree = Markdown::new()
+            .with_inline_rule(Arc::new(Greedy))
+            .parse("a.md", ":ref[git] :$git\n");
+        let names: Vec<_> = find(&tree, "directive")
+            .into_iter()
+            .map(|n| n.node().attrs["name"].clone())
+            .collect();
+        assert_eq!(names, ["ref", "sugar"]);
+    }
+
+    #[test]
+    fn documents_of_an_instance_render_its_rules() {
+        let markdown = Markdown::new().with_inline_rule(Arc::new(Sigil));
+        let parsed = markdown.document("a.md", "See $git now.\n");
+        assert_eq!(parsed.problems, []);
+        let mut doc = parsed.value;
+        assert_eq!(doc.render(crate::markdown::RenderFormat::Xml), []);
+        assert_eq!(doc.to_string(), "See <ref via=\"sigil\">git</ref> now.\n");
+    }
+
+    #[test]
+    fn empty_documents_of_an_instance_render_its_rules() {
+        let markdown = Markdown::new().with_inline_rule(Arc::new(Sigil));
+        let parsed = markdown.document("a.md", "See $git now.\n");
+        let mut doc = markdown.empty_document("out.md");
+        doc.children = parsed.value.children;
+        assert_eq!(doc.render(crate::markdown::RenderFormat::Xml), []);
+        assert_eq!(doc.to_string(), "See <ref via=\"sigil\">git</ref> now.\n");
     }
 }
