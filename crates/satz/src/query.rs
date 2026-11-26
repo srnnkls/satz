@@ -18,6 +18,7 @@ mod group;
 mod lex;
 mod matcher;
 mod pattern;
+mod predicate;
 mod read;
 mod rows;
 mod sort;
@@ -31,13 +32,15 @@ use std::time::SystemTime;
 pub(crate) use self::define::Defines;
 pub(crate) use self::lex::{Kind, Token};
 pub(crate) use self::matcher::lines;
-pub(crate) use self::read::{Reader, suggest, unexpected};
+pub(crate) use self::read::{Importer, Reader, suggest, unexpected};
 
 use self::group::Group;
 use self::pattern::{Check, Operand, Pattern, Relate};
 use self::sort::SortKey;
+use crate::edit::{Action, Change};
 use crate::similarity::{Embed, EmbedError, EmbeddingError};
-use crate::tree::{NodeId, Tree};
+use crate::template;
+use crate::tree::{NodeId, Position, Tree};
 
 /// The node type of a root that holds files: patterns never match it.
 pub const CORPUS: &str = "corpus";
@@ -136,6 +139,29 @@ pub struct SchemaSpec {
     pub keys: BTreeMap<String, BTreeSet<String>>,
     /// The unit, which must be a registered type.
     pub unit: Option<Unit>,
+    /// Keys compared as numbers, beyond `level`, `words`, `lines` and
+    /// `chars`.
+    pub numeric: BTreeSet<String>,
+}
+
+impl SchemaSpec {
+    /// `self` with `other`'s types, keys and numeric keys; a type both
+    /// register takes the keys of both, and `other`'s unit replaces none.
+    #[must_use]
+    pub fn merge(mut self, other: Self) -> Self {
+        for kind in other.types {
+            match self.types.iter_mut().find(|t| t.name == kind.name) {
+                Some(known) => known.keys.extend(kind.keys),
+                None => self.types.push(kind),
+            }
+        }
+        for (kind, keys) in other.keys {
+            self.keys.entry(kind).or_default().extend(keys);
+        }
+        self.numeric.extend(other.numeric);
+        self.unit = self.unit.or(other.unit);
+        self
+    }
 }
 
 /// Why a [`SchemaSpec`] was rejected.
@@ -154,6 +180,7 @@ pub enum SchemaError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Schema {
     types: BTreeMap<String, BTreeSet<String>>,
+    numeric: BTreeSet<String>,
     unit: Option<Unit>,
 }
 
@@ -170,7 +197,12 @@ impl Schema {
                 )
             })
             .collect();
-        Self { types, unit: None }
+        let numeric = NUMERIC_KEYS.iter().map(|&k| k.to_owned()).collect();
+        Self {
+            types,
+            numeric,
+            unit: None,
+        }
     }
 
     /// The core schema extended by `spec`.
@@ -181,6 +213,7 @@ impl Schema {
     /// an added key or the unit names a type the schema lacks.
     pub fn new(spec: SchemaSpec) -> Result<Self, SchemaError> {
         let mut schema = Self::core();
+        schema.numeric.extend(spec.numeric);
         for kind in spec.types {
             if schema.types.contains_key(&kind.name) {
                 return Err(SchemaError::DuplicateType(kind.name));
@@ -221,8 +254,8 @@ impl Schema {
 
     /// Whether `key` compares as a number.
     #[must_use]
-    pub fn is_numeric(key: &str) -> bool {
-        NUMERIC_KEYS.contains(&key)
+    pub fn is_numeric(&self, key: &str) -> bool {
+        self.numeric.contains(key)
     }
 
     /// The unit, if the caller registered one.
@@ -493,6 +526,18 @@ pub struct Query {
     sorts: Vec<SortKey>,
     printed: Vec<String>,
     unit: Option<Unit>,
+    edits: Vec<EditForm>,
+    predicates: Vec<predicate::Predicate>,
+}
+
+/// An edit form: what it does at each node a capture holds, with text from
+/// a template.
+#[derive(Debug, Clone)]
+pub(crate) struct EditForm {
+    action: Action,
+    capture: String,
+    template: String,
+    pos: usize,
 }
 
 impl Query {
@@ -506,7 +551,19 @@ impl Query {
     /// Returns [`ReadError`] when the source is not a valid query for `schema`;
     /// an invalid `sort` is reported at the offset just past the source.
     pub fn read(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Self, ReadError> {
+        Self::read_importing(source, schema, sort, None)
+    }
+
+    /// Reads `source` as [`Query::read`] does, resolving its `(import …)`
+    /// forms with `importer`.
+    pub(crate) fn read_importing<'s>(
+        source: &str,
+        schema: &'s Schema,
+        sort: Option<&str>,
+        importer: Option<Importer<'s>>,
+    ) -> Result<Self, ReadError> {
         let mut reader = Reader::new(source, schema)?;
+        reader.importer = importer;
         if let Some(sort) = sort {
             reader.sorts.push(SortKey::parse(sort, source.len())?);
         }
@@ -549,6 +606,50 @@ impl Query {
     #[must_use]
     pub fn params(&self) -> &BTreeMap<String, ParamKind> {
         &self.params
+    }
+
+    /// Whether the query makes edits.
+    #[must_use]
+    pub fn has_edits(&self) -> bool {
+        !self.edits.is_empty()
+    }
+
+    /// The changes the query's edits make at the nodes `rows` capture in
+    /// `tree`, their templates filled from each row and `params`. Nodes
+    /// without a position in their file are left alone.
+    #[must_use]
+    pub fn changes(
+        &self,
+        rows: &[Row],
+        tree: &Tree,
+        params: &BTreeMap<String, Value>,
+    ) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for row in rows {
+            for edit in &self.edits {
+                let Some(Capture::Nodes(hits) | Capture::Collected(hits)) =
+                    row.captures.get(&edit.capture)
+                else {
+                    continue;
+                };
+                let text = template::render(&edit.template, row, tree, params);
+                for hit in hits {
+                    let Hit::Node(id) = hit else { continue };
+                    let Some(node) = tree.get(*id) else { continue };
+                    let origin = &node.node().origin;
+                    let Some(span) = origin.position().map(Position::span) else {
+                        continue;
+                    };
+                    let span = match edit.action {
+                        Action::InsertBefore => span.start..span.start,
+                        Action::InsertAfter => span.end..span.end,
+                        _ => span,
+                    };
+                    changes.push(Change::new(origin.file(), span, text.clone(), edit.action));
+                }
+            }
+        }
+        changes
     }
 
     pub(crate) fn set_source(&mut self, source: &str) {
@@ -614,8 +715,19 @@ impl Query {
                 Some(_) => {}
             }
         }
-        let data = view::data_tree(&environment.data);
-        let view = view::View::new(tree, data.as_ref());
+        let facts = predicate::facts(&self.predicates, tree, environment)?;
+        let data = view::data_tree(&environment.data, &facts);
+        self.run_over(tree, environment, data.as_ref())
+    }
+
+    /// Matches the query over `tree` with the data tree `data` after it.
+    fn run_over(
+        &self,
+        tree: &Tree,
+        environment: &Environment,
+        data: Option<&Tree>,
+    ) -> Result<Vec<Row>, RunError> {
+        let view = view::View::new(tree, data);
         let mut matcher = matcher::Matcher::new(self, environment, view);
         let bindings = match (self.members.as_slice(), self.absent.is_empty()) {
             ([member], true) => matcher.everywhere(member, self.captures[0].is_empty()),

@@ -173,11 +173,15 @@ impl Attr {
             .chain(groups.iter().filter_map(|g| g.var.as_deref()))
     }
 
-    /// The variable the attribute binds or constrains.
-    pub(super) fn var(&self) -> Option<&str> {
+    /// The variables the attribute binds or constrains.
+    pub(super) fn vars(&self) -> Vec<&str> {
         match &self.check {
-            Check::Bind(var) | Check::Constrain { var, .. } => Some(var),
-            _ => None,
+            Check::Constrain {
+                relate: Relate::Compare(_, expr),
+                ..
+            } => expr.vars(),
+            Check::Bind(var) | Check::Constrain { var, .. } => vec![var],
+            _ => Vec::new(),
         }
     }
 
@@ -237,6 +241,7 @@ pub(super) enum Comparison {
     AtLeast,
     Below,
     AtMost,
+    Equal,
 }
 
 impl Comparison {
@@ -256,6 +261,7 @@ impl Comparison {
             Self::AtLeast => value >= limit,
             Self::Below => value < limit,
             Self::AtMost => value <= limit,
+            Self::Equal => value.total_cmp(&limit).is_eq(),
         }
     }
 }
@@ -267,9 +273,78 @@ pub(super) enum Operand {
     Param(String),
 }
 
+/// Arithmetic over numbers, `$params` and `?variables`.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Expr {
+    Operand(Operand),
+    Var(String),
+    Apply(Op, Vec<Expr>),
+}
+
+impl Expr {
+    /// The variables the expression reads, in order of appearance.
+    pub(super) fn vars(&self) -> Vec<&str> {
+        match self {
+            Self::Operand(_) => Vec::new(),
+            Self::Var(var) => vec![var],
+            Self::Apply(_, args) => args.iter().flat_map(Self::vars).collect(),
+        }
+    }
+
+    /// The expression's value, or `None` when a variable is unbound or not a
+    /// number, or a divisor is 0.
+    pub(super) fn eval(
+        &self,
+        var: &impl Fn(&str) -> Option<f64>,
+        number: &impl Fn(&Operand) -> f64,
+    ) -> Option<f64> {
+        match self {
+            Self::Operand(operand) => Some(number(operand)),
+            Self::Var(name) => var(name),
+            Self::Apply(op, args) => {
+                let mut values = args.iter().map(|arg| arg.eval(var, number));
+                let first = values.next()??;
+                if *op == Op::Subtract && args.len() == 1 {
+                    return Some(-first);
+                }
+                values.try_fold(first, |acc, value| {
+                    let value = value?;
+                    Some(match op {
+                        Op::Add => acc + value,
+                        Op::Subtract => acc - value,
+                        Op::Multiply => acc * value,
+                        Op::Divide => (value != 0.0).then(|| acc / value)?,
+                    })
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Op {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+impl Op {
+    pub(super) fn from_symbol(symbol: &str) -> Option<Self> {
+        match symbol {
+            "+" => Some(Self::Add),
+            "-" => Some(Self::Subtract),
+            "*" => Some(Self::Multiply),
+            "/" => Some(Self::Divide),
+            _ => None,
+        }
+    }
+}
+
 /// How a constrained value relates to the variable's bound value.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Relate {
+    Compare(Comparison, Expr),
     Not,
     After,
     Before,

@@ -142,7 +142,7 @@ impl<'a> Loader<'a> {
     }
 
     /// The defines of the module an `(import name)` names.
-    fn defines(&mut self, name: &str) -> Result<Defines, String> {
+    pub(super) fn defines(&mut self, name: &str) -> Result<Defines, String> {
         if !self.files.contains_key(name) {
             return Err(format!("no module {name:?}"));
         }

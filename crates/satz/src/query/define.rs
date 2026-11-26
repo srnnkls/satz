@@ -1,7 +1,7 @@
 //! Defines: named patterns with parameters, `(define (name ?var @capture …)
 //! pattern…)`, and their expansion where a pattern calls them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use regex::Regex;
 
@@ -12,12 +12,13 @@ use super::{ReadError, ReadErrorKind};
 /// How often a source may expand defines before it is taken as recursive.
 const MAX_EXPANSIONS: usize = 1000;
 
-/// A named pattern with parameters: `(define (name ?var @capture …) pattern…)`.
+/// A named pattern with parameters: `(define (name ?var @capture …) pattern…)`,
+/// one body per clause.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Define {
-    name: String,
-    params: Vec<String>,
-    body: Vec<Token>,
+    pub(super) name: String,
+    pub(super) params: Vec<String>,
+    pub(super) bodies: Vec<Vec<Token>>,
 }
 
 /// Defines by name, as a module exports them to its importers.
@@ -82,13 +83,65 @@ impl Reader<'_> {
             )));
         }
         self.next();
-        let define = Define {
-            name: name.text.clone(),
-            params,
-            body,
+        let define = match self.defines.get_mut(&name.text) {
+            Some(known) if known.params == params => {
+                known.bodies.push(body);
+                known.clone()
+            }
+            Some(_) => {
+                return Err(ReadError::syntax(
+                    name.pos,
+                    format!("(define ({} ...)) again with other parameters", name.text),
+                )
+                .with_hint("give every clause of a define the same signature"));
+            }
+            None => {
+                let define = Define {
+                    name: name.text.clone(),
+                    params,
+                    bodies: vec![body],
+                };
+                self.defines.insert(name.text.clone(), define.clone());
+                define
+            }
         };
-        self.defines.insert(name.text.clone(), define.clone());
         Ok((name.text, define))
+    }
+
+    /// Whether the define `name` is a predicate: it has several clauses, or
+    /// calls itself through its bodies.
+    pub(super) fn is_predicate(&self, name: &str) -> bool {
+        let Some(define) = self.defines.get(name) else {
+            return false;
+        };
+        if define.bodies.len() > 1 {
+            return true;
+        }
+        let mut seen = BTreeSet::new();
+        let mut stack: Vec<&str> = self.calls(define).collect();
+        while let Some(callee) = stack.pop() {
+            if callee == name {
+                return true;
+            }
+            if seen.insert(callee)
+                && let Some(next) = self.defines.get(callee)
+            {
+                stack.extend(self.calls(next));
+            }
+        }
+        false
+    }
+
+    /// The defines the bodies of `define` call.
+    fn calls<'d>(&'d self, define: &'d Define) -> impl Iterator<Item = &'d str> {
+        define.bodies.iter().flat_map(move |body| {
+            body.windows(2).filter_map(move |pair| {
+                (pair[0].kind == Kind::Open
+                    && pair[1].kind == Kind::Symbol
+                    && self.defines.contains_key(&pair[1].text))
+                .then_some(pair[1].text.as_str())
+            })
+        })
     }
 
     /// Makes callable the `defines` that the `(import …)` naming `name`
@@ -177,8 +230,8 @@ impl Reader<'_> {
             ));
         }
         let suffix = format!("_{}", self.expanded);
-        let mut body = Vec::with_capacity(define.body.len());
-        for token in &define.body {
+        let mut body = Vec::with_capacity(define.bodies[0].len());
+        for token in &define.bodies[0] {
             let mut token = token.clone();
             if token.kind == Kind::Regex {
                 bind_groups(&mut token, define, &args, &suffix, open)?;

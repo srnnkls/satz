@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod config;
+mod edits;
 mod failure;
 mod input;
 mod json;

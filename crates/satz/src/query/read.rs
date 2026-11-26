@@ -4,20 +4,29 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use regex::Regex;
 
-use super::define::Define;
+use super::EditForm;
+use super::define::{Define, Defines};
+use super::group::Group;
 use super::lex::{Kind, Token, lex};
 use super::pattern::{
-    Attr, Chain, Check, Comparison, Link, Measure, Negation, Operand, Pattern, Quant, Relate,
-    Relation, RelationKind, Similarity, Submatch, Test,
+    Attr, Chain, Check, Comparison, Expr, Link, Measure, Negation, Op, Operand, Pattern, Quant,
+    Relate, Relation, RelationKind, Similarity, Submatch, Test,
 };
+use super::predicate::Predicate;
 use super::sort::SortKey;
 use super::{ParamKind, Query, ReadError, ReadErrorKind, Schema, TEXT_KEYS};
+use crate::edit::Action;
+use crate::template::{FILTERS, Sigil, placeholders};
 
 /// The quantifiers a nested pattern takes.
 const NESTED: &str = "?*+";
 
+/// Resolves the module an `(import name)` names to its defines.
+pub(crate) type Importer<'s> = Box<dyn FnMut(&str) -> Result<Defines, String> + 's>;
+
 pub(crate) struct Reader<'s> {
     pub(super) schema: &'s Schema,
+    pub(super) importer: Option<Importer<'s>>,
     pub(super) tokens: Vec<Token>,
     pub(super) at: usize,
     pub(super) captures: Vec<String>,
@@ -29,7 +38,12 @@ pub(crate) struct Reader<'s> {
     pub(super) expanded: usize,
     pub(super) sorts: Vec<SortKey>,
     pub(crate) printed: Vec<String>,
-    next_id: usize,
+    pub(super) next_id: usize,
+    /// The recursive defines the query calls, read once each.
+    pub(super) predicates: BTreeMap<String, Predicate>,
+    /// Whether the query is a recursive define's clause, whose parameters
+    /// print.
+    pub(super) clause: bool,
 }
 
 /// Whether `token` opens a form that is not a pattern: `not` or a relation.
@@ -40,9 +54,15 @@ pub(super) fn is_form(token: &Token) -> bool {
 
 impl<'s> Reader<'s> {
     pub(crate) fn new(source: &str, schema: &'s Schema) -> Result<Self, ReadError> {
-        Ok(Self {
+        Ok(Self::from_tokens(lex(source)?, schema))
+    }
+
+    /// A reader of `tokens`, which end in [`Kind::Eof`].
+    pub(super) fn from_tokens(tokens: Vec<Token>, schema: &'s Schema) -> Self {
+        Self {
             schema,
-            tokens: lex(source)?,
+            importer: None,
+            tokens,
             at: 0,
             captures: Vec::new(),
             values: BTreeSet::new(),
@@ -54,7 +74,9 @@ impl<'s> Reader<'s> {
             sorts: Vec::new(),
             printed: Vec::new(),
             next_id: 0,
-        })
+            predicates: BTreeMap::new(),
+            clause: false,
+        }
     }
 
     pub(crate) fn peek(&self) -> &Token {
@@ -88,6 +110,7 @@ impl<'s> Reader<'s> {
         let mut members = Vec::new();
         let mut absent = Vec::new();
         let mut group = None;
+        let mut edits = Vec::new();
         while self.peek().kind != end {
             if self.peek().kind == Kind::Eof {
                 return Err(
@@ -96,6 +119,12 @@ impl<'s> Reader<'s> {
             }
             let opens = self.peek().kind == Kind::Open;
             let head = self.peek_at(1).clone();
+            if opens && head.kind == Kind::Symbol && self.is_predicate(&head.text) {
+                let open = self.next();
+                self.next();
+                members.push(self.predicate_call(&head.text, &open)?);
+                continue;
+            }
             if opens
                 && head.kind == Kind::Symbol
                 && let Some(define) = self.defines.get(&head.text).cloned()
@@ -105,31 +134,23 @@ impl<'s> Reader<'s> {
                 self.expand(&define, &open)?;
                 continue;
             }
-            if opens && head.is_symbol("group") {
-                let open = self.next();
-                self.next();
-                if group.is_some() {
-                    return Err(ReadError::syntax(open.pos, "a query takes one (group ...)")
-                        .with_hint("list every key and aggregate in one (group ...)"));
-                }
-                group = Some(self.group(&open)?);
+            if opens && (head.is_symbol("define") || head.is_symbol("import")) {
+                self.leading_form(&head, members.is_empty() && absent.is_empty())?;
                 continue;
             }
-            if group.is_some() {
+            if opens && self.trailing(&head, &mut group, &mut edits)? {
+                continue;
+            }
+            if group.is_some() || !edits.is_empty() {
+                let form = if group.is_some() { "group" } else { "edits" };
                 return Err(ReadError::syntax(
                     self.peek().pos,
-                    "(group ...) follows the patterns of a query",
+                    format!("({form} ...) follows the patterns of a query"),
                 )
-                .with_hint("move the pattern before (group ...)"));
+                .with_hint(format!("move the pattern before ({form} ...)")));
             }
             if opens && head.is_symbol("not") {
-                self.at += 2;
-                let pattern = self.pattern("")?;
-                let close = self.next();
-                if close.kind != Kind::Close {
-                    return Err(unexpected(&close, ") closing (not"));
-                }
-                absent.push(pattern);
+                absent.push(self.absent()?);
                 continue;
             }
             members.push(self.pattern("?")?);
@@ -142,7 +163,7 @@ impl<'s> Reader<'s> {
         }
         let mut captures = std::mem::take(&mut self.captures);
         if captures.is_empty() {
-            if members.len() > 1 || !absent.is_empty() {
+            if (members.len() > 1 || !absent.is_empty()) && !self.clause {
                 return Err(ReadError::syntax(
                     start,
                     "a query of several patterns prints its captures; name one with @",
@@ -151,6 +172,7 @@ impl<'s> Reader<'s> {
             }
             captures.push(String::new());
         }
+        self.check_edits(&edits, &captures)?;
         let mut query = Query {
             source: String::new(),
             members,
@@ -164,9 +186,205 @@ impl<'s> Reader<'s> {
             sorts: self.sorts.clone(),
             printed: self.printed.clone(),
             unit: self.schema.unit().cloned(),
+            edits,
+            predicates: if self.clause {
+                Vec::new()
+            } else {
+                std::mem::take(&mut self.predicates).into_values().collect()
+            },
         };
         query.check()?;
         Ok(query)
+    }
+
+    /// Reads the `(group …)` or edit form whose head is `head` into `group`
+    /// or `edits`, returning whether there was one.
+    fn trailing(
+        &mut self,
+        head: &Token,
+        group: &mut Option<Group>,
+        edits: &mut Vec<EditForm>,
+    ) -> Result<bool, ReadError> {
+        if head.kind != Kind::Symbol {
+            return Ok(false);
+        }
+        if head.text == "group" {
+            let open = self.next();
+            self.next();
+            if group.is_some() || !edits.is_empty() {
+                return Err(ReadError::syntax(
+                    open.pos,
+                    "a query takes one (group ...) and no edits with it",
+                )
+                .with_hint("list every key and aggregate in one (group ...)"));
+            }
+            *group = Some(self.group(&open)?);
+            return Ok(true);
+        }
+        let Some(action) = Action::from_symbol(&head.text) else {
+            return Ok(false);
+        };
+        let open = self.next();
+        self.next();
+        if group.is_some() {
+            return Err(
+                ReadError::syntax(open.pos, "a grouped query makes no edits")
+                    .with_hint("drop the (group ...) or the edit"),
+            );
+        }
+        let capture = self.next();
+        if capture.kind != Kind::Capture {
+            return Err(unexpected(
+                &capture,
+                &format!("a @capture, as in ({} @c ...)", head.text),
+            ));
+        }
+        let mut template = String::new();
+        if action != Action::Delete {
+            let text = self.next();
+            if text.kind != Kind::String {
+                return Err(unexpected(
+                    &text,
+                    &format!(r#"a "template", as in ({} @c "{{@c.text}}")"#, head.text),
+                ));
+            }
+            template = text.text;
+        }
+        let close = self.next();
+        if close.kind != Kind::Close {
+            return Err(unexpected(&close, &format!(") closing ({}", head.text)));
+        }
+        self.printed.extend(
+            placeholders(&template)
+                .into_iter()
+                .filter(|p| p.sigil == Sigil::Var)
+                .map(|p| p.name.to_owned()),
+        );
+        edits.push(EditForm {
+            action,
+            capture: capture.text,
+            template,
+            pos: capture.pos,
+        });
+        Ok(true)
+    }
+
+    /// Fails when an edit names a capture that holds no nodes, or its
+    /// template one the query lacks.
+    fn check_edits(&self, edits: &[EditForm], captures: &[String]) -> Result<(), ReadError> {
+        for edit in edits {
+            if !captures.contains(&edit.capture) || self.values.contains(&edit.capture) {
+                return Err(ReadError::new(
+                    ReadErrorKind::Unbound,
+                    edit.pos,
+                    format!(
+                        "@{} captures no node, so there is nothing to edit",
+                        edit.capture
+                    ),
+                )
+                .with_hint("edit a node capture, as in (heading) @h (replace @h \"...\")"));
+            }
+            if let Some((name, _)) = placeholders(&edit.template)
+                .into_iter()
+                .flat_map(|p| p.filters)
+                .find(|(name, _)| !FILTERS.contains(name))
+            {
+                return Err(ReadError::syntax(
+                    edit.pos,
+                    format!("the template filters with {name:?}, which is no filter"),
+                )
+                .with_hint(format!("filters: {}", FILTERS.join(" "))));
+            }
+            if let Some(unknown) = placeholders(&edit.template)
+                .into_iter()
+                .find(|p| p.sigil == Sigil::Capture && !captures.iter().any(|c| c == p.name))
+            {
+                return Err(ReadError::new(
+                    ReadErrorKind::Unbound,
+                    edit.pos,
+                    format!(
+                        "the template names @{}, which the query does not capture",
+                        unknown.name
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads a top-level `(not …)`, whose `(` the reader is at.
+    fn absent(&mut self) -> Result<Pattern, ReadError> {
+        self.at += 2;
+        let inner = self.peek_at(1).clone();
+        let pattern = if self.peek().kind == Kind::Open
+            && inner.kind == Kind::Symbol
+            && self.is_predicate(&inner.text)
+        {
+            if self.clause {
+                return Err(ReadError::syntax(
+                    inner.pos,
+                    format!(
+                        "({} ...) is negated inside a define, where its facts are still growing",
+                        inner.text
+                    ),
+                )
+                .with_hint("negate it in the query that calls the define"));
+            }
+            let open = self.next();
+            self.next();
+            self.predicate_call(&inner.text, &open)?
+        } else {
+            self.pattern("")?
+        };
+        let close = self.next();
+        if close.kind != Kind::Close {
+            return Err(unexpected(&close, ") closing (not"));
+        }
+        Ok(pattern)
+    }
+
+    /// Reads the `(define …)` or `(import …)` form whose head is `head`,
+    /// which must come `first`, before every pattern.
+    fn leading_form(&mut self, head: &Token, first: bool) -> Result<(), ReadError> {
+        let open = self.next();
+        self.next();
+        if !first {
+            return Err(ReadError::syntax(
+                open.pos,
+                format!("({} ...) comes before the patterns of a query", head.text),
+            )
+            .with_hint(format!("move the {} to the start", head.text)));
+        }
+        if head.text == "define" {
+            self.define(&open).map(drop)
+        } else {
+            self.import_named()
+        }
+    }
+
+    /// Reads `name)` of an `(import name)` and makes its defines callable.
+    fn import_named(&mut self) -> Result<(), ReadError> {
+        let name = self.next();
+        if name.kind != Kind::Symbol {
+            return Err(unexpected(
+                &name,
+                "a module name, as in (import std/structure)",
+            ));
+        }
+        let close = self.next();
+        if close.kind != Kind::Close {
+            return Err(unexpected(&close, ") closing (import"));
+        }
+        let Some(importer) = self.importer.as_mut() else {
+            return Err(ReadError::syntax(
+                name.pos,
+                "(import ...) needs modules, and this query reads none",
+            ));
+        };
+        let defines = importer(&name.text).map_err(|message| {
+            ReadError::syntax(name.pos, message).with_hint("std modules are named std/NAME")
+        })?;
+        self.import(&name, defines)
     }
 
     fn pattern(&mut self, quants: &str) -> Result<Pattern, ReadError> {
@@ -193,6 +411,16 @@ impl<'s> Reader<'s> {
                 if head.kind != Kind::Symbol {
                     return Err(ReadError::syntax(head.pos, "expected a type after (")
                         .with_hint(format!("types: {}", self.type_names().join(" "))));
+                }
+                if self.is_predicate(&head.text) {
+                    return Err(ReadError::syntax(
+                        head.pos,
+                        format!(
+                            "({} ...) is a recursive define, so it is called at the top level of a query",
+                            head.text
+                        ),
+                    )
+                    .with_hint("call it beside the pattern, joined on a ?variable"));
                 }
                 if let Some(define) = self.defines.get(&head.text).cloned() {
                     self.expand(&define, &open)?;
@@ -504,6 +732,10 @@ impl<'s> Reader<'s> {
         let (value, negate, relate) = match name {
             "not" => (self.next(), true, None),
             ">" | ">=" | "<" | "<=" | "older" => return self.comparison(key, &form, name),
+            "+" | "-" | "*" | "/" => {
+                let expr = self.apply(&form)?;
+                return compared(key, &form, Comparison::Equal, expr);
+            }
             "contains" | "covers" | "within" | "after" | "before" => {
                 let value = self.next();
                 if value.kind != Kind::Var {
@@ -529,7 +761,7 @@ impl<'s> Reader<'s> {
             _ => {
                 return Err(unexpected(
                     &form,
-                    "not, after, before, contains, covers, near, overlap, similar, older or a comparison, as in (not ?x), (near ?t 0.7) or (> 500)",
+                    "not, after, before, contains, covers, near, overlap, similar, older, a comparison or arithmetic, as in (not ?x), (near ?t 0.7), (> 500) or (+ ?l 1)",
                 ));
             }
         };
@@ -549,17 +781,62 @@ impl<'s> Reader<'s> {
                 format!(":{} takes a string, not a comparison", key.text),
             ));
         }
-        let operand = self.operand(name)?;
+        let expr = self.expr(name)?;
         let close = self.next();
         if close.kind != Kind::Close {
             return Err(unexpected(&close, &format!(") closing ({name}")));
         }
-        let test = match Comparison::from_symbol(name) {
-            Some(comparison) => Test::Compare(comparison, operand),
-            None => Test::Older(operand),
+        let test = match (Comparison::from_symbol(name), expr) {
+            (Some(comparison), Expr::Operand(operand)) => Test::Compare(comparison, operand),
+            (None, Expr::Operand(operand)) => Test::Older(operand),
+            (Some(comparison), expr) => return compared(key, form, comparison, expr),
+            (None, _) => {
+                return Err(ReadError::syntax(
+                    form.pos,
+                    "(older days) takes a number or $param",
+                ));
+            }
         };
         let negate = false;
         Ok(attr(key.text, 0, Check::Test { test, negate }))
+    }
+
+    /// A number, `$param`, `?variable` or `(+ …)`, `(- …)`, `(* …)` or
+    /// `(/ …)` over them, inside `(form …)`.
+    fn expr(&mut self, form: &str) -> Result<Expr, ReadError> {
+        match self.peek().kind {
+            Kind::Var => Ok(Expr::Var(self.next().text)),
+            Kind::Open => {
+                self.next();
+                let op = self.next();
+                self.apply(&op)
+            }
+            _ => Ok(Expr::Operand(self.operand(form)?)),
+        }
+    }
+
+    /// The arguments of the arithmetic `op`, whose `(` and head the reader
+    /// has just passed, up to its `)`.
+    fn apply(&mut self, op: &Token) -> Result<Expr, ReadError> {
+        let Some(kind) = Op::from_symbol(&op.text) else {
+            return Err(unexpected(op, "+, -, * or /"));
+        };
+        let mut args = Vec::new();
+        while self.peek().kind != Kind::Close {
+            if self.peek().kind == Kind::Eof {
+                return Err(ReadError::syntax(op.pos, "unclosed (").with_hint("add the matching )"));
+            }
+            args.push(self.expr(&op.text)?);
+        }
+        self.next();
+        let least = if kind == Op::Subtract { 1 } else { 2 };
+        if args.len() < least {
+            return Err(ReadError::syntax(
+                op.pos,
+                format!("({} ...) takes at least {least} arguments", op.text),
+            ));
+        }
+        Ok(Expr::Apply(kind, args))
     }
 
     /// The attribute `key` with `value`, negated or related to it.
@@ -610,8 +887,10 @@ impl<'s> Reader<'s> {
                 ));
             }
             Kind::Regex => return regexp(key.text, &value, &value.text, negate),
-            Kind::String | Kind::Symbol | Kind::Int | Kind::Float => literal(&key.text, &value)?,
-            Kind::Range if Schema::is_numeric(&key.text) => Test::Range(value.lo, value.hi),
+            Kind::String | Kind::Symbol | Kind::Int | Kind::Float => {
+                literal(self.schema.is_numeric(&key.text), &key.text, &value)?
+            }
+            Kind::Range if self.schema.is_numeric(&key.text) => Test::Range(value.lo, value.hi),
             Kind::Range => {
                 return Err(ReadError::syntax(
                     value.pos,
@@ -639,7 +918,9 @@ impl<'s> Reader<'s> {
             Kind::Int | Kind::Float => Ok(Operand::Number(operand.text.parse().unwrap_or(0.0))),
             _ => Err(unexpected(
                 &operand,
-                &format!("a number or $param, as in ({form} 500)"),
+                &format!(
+                    "a number, $param, ?variable or arithmetic, as in ({form} 500) or ({form} (+ ?l 1))"
+                ),
             )),
         }
     }
@@ -718,8 +999,8 @@ struct Anchors {
 
 /// The test of a literal value: a number or range for a numeric key, else
 /// equality.
-fn literal(key: &str, value: &Token) -> Result<Test, ReadError> {
-    if !Schema::is_numeric(key) {
+fn literal(numeric: bool, key: &str, value: &Token) -> Result<Test, ReadError> {
+    if !numeric {
         return Ok(Test::Equals(value.text.clone()));
     }
     let n = value
@@ -734,7 +1015,30 @@ fn literal(key: &str, value: &Token) -> Result<Test, ReadError> {
     Ok(Test::Range(n, n))
 }
 
-fn attr(key: String, pos: usize, check: Check) -> Attr {
+/// The attribute `key` compared with `expr`, which reads a variable.
+fn compared(
+    key: Token,
+    form: &Token,
+    comparison: Comparison,
+    expr: Expr,
+) -> Result<Attr, ReadError> {
+    if key.text == "contains" || key.text == "matches" {
+        return Err(ReadError::syntax(
+            form.pos,
+            format!(":{} takes a string, not arithmetic", key.text),
+        ));
+    }
+    let Some(var) = expr.vars().first().map(|&var| var.to_owned()) else {
+        return Err(
+            ReadError::syntax(form.pos, "arithmetic without a ?variable is a constant")
+                .with_hint("write the number, or use a ?variable, as in (+ ?l 1)"),
+        );
+    };
+    let relate = Relate::Compare(comparison, expr);
+    Ok(attr(key.text, form.pos, Check::Constrain { var, relate }))
+}
+
+pub(super) fn attr(key: String, pos: usize, check: Check) -> Attr {
     Attr {
         key,
         pos,

@@ -116,13 +116,14 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, ReadError> {
                 tokens.push(Token::new(Kind::Symbol, &source[i..end], i));
                 i = end;
             }
-            b'(' | b')' | b'[' | b']' | b'>' | b'?' | b'*' | b'+' => {
+            b'(' | b')' | b'[' | b']' | b'>' | b'?' | b'*' | b'+' | b'-' => {
                 let kind = match c {
                     b'(' => Kind::Open,
                     b')' => Kind::Close,
                     b'[' => Kind::OpenAlt,
                     b']' => Kind::CloseAlt,
                     b'>' => Kind::Direct,
+                    b'-' => Kind::Symbol,
                     _ => Kind::Quant,
                 };
                 tokens.push(Token::new(kind, &source[i..=i], i));
@@ -152,18 +153,18 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, ReadError> {
                 tokens.push(Token::new(kind, &source[i + 1..end], i));
                 i = end;
             }
-            b'/' => {
-                let mut j = i + 1;
-                while j < src.len() && src[j] != b'/' {
-                    j += if src[j] == b'\\' { 2 } else { 1 };
-                }
-                if j >= src.len() {
-                    return Err(ReadError::syntax(i, "unterminated /regexp/")
-                        .with_hint(r#"quote values that contain /, as in :path "ops/run.md""#));
-                }
-                let text = source[i + 1..j].replace(r"\/", "/");
+            b'/' if tokens.last().is_some_and(|t: &Token| t.kind == Kind::Open) => {
+                tokens.push(Token::new(Kind::Symbol, "/", i));
+                i += 1;
+            }
+            b'#' | b'/' => {
+                let (text, end) = match (c, next) {
+                    (b'#', Some(b'"')) => regex_string(source, i + 1)?,
+                    (b'/', _) => slash_regex(source, i)?,
+                    _ => return Err(unexpected_char(source, i)),
+                };
                 tokens.push(Token::new(Kind::Regex, text, i));
-                i = j + 1;
+                i = end;
             }
             b'"' => {
                 let (text, end) = string(source, i)?;
@@ -179,18 +180,7 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, ReadError> {
                 tokens.push(Token::new(Kind::Symbol, &source[i..end], i));
                 i = end;
             }
-            _ => {
-                let found = source[i..]
-                    .chars()
-                    .next()
-                    .unwrap_or(char::REPLACEMENT_CHARACTER);
-                let hint = if found == '\'' {
-                    "quote strings with \" inside the single-quoted shell argument"
-                } else {
-                    "patterns use ( ) [ ] > . ? * + @capture :key \"string\" /regexp/"
-                };
-                return Err(ReadError::syntax(i, format!("unexpected {found:?}")).with_hint(hint));
-            }
+            _ => return Err(unexpected_char(source, i)),
         }
     }
     tokens.push(Token::eof(src.len()));
@@ -215,6 +205,59 @@ fn string(source: &str, start: usize) -> Result<(String, usize), ReadError> {
         }
     }
     Err(ReadError::syntax(start, "unterminated string"))
+}
+
+/// The error for the character at `at`, which starts no token.
+fn unexpected_char(source: &str, at: usize) -> ReadError {
+    let found = source[at..]
+        .chars()
+        .next()
+        .unwrap_or(char::REPLACEMENT_CHARACTER);
+    let hint = if found == '\'' {
+        "quote strings with \" inside the single-quoted shell argument"
+    } else {
+        "patterns use ( ) [ ] > . ? * + - / @capture :key \"string\" /regexp/ #\"regexp\""
+    };
+    ReadError::syntax(at, format!("unexpected {found:?}")).with_hint(hint)
+}
+
+/// The regexp of the `/…/` literal starting at `start`, `\/` read as `/`,
+/// and the offset after its closing slash.
+fn slash_regex(source: &str, start: usize) -> Result<(String, usize), ReadError> {
+    let src = source.as_bytes();
+    let mut j = start + 1;
+    while j < src.len() && src[j] != b'/' {
+        j += if src[j] == b'\\' { 2 } else { 1 };
+    }
+    if j >= src.len() {
+        return Err(ReadError::syntax(start, "unterminated /regexp/")
+            .with_hint(r#"write a regexp holding / as #"…", as in :path #"^ops/""#));
+    }
+    Ok((source[start + 1..j].replace(r"\/", "/"), j + 1))
+}
+
+/// The regexp of the `#"…"` literal whose quote is at `start`, and the
+/// offset after its closing quote. `\"` is a quote; every other backslash
+/// stays for the regexp.
+fn regex_string(source: &str, start: usize) -> Result<(String, usize), ReadError> {
+    let mut text = String::new();
+    let mut chars = source[start + 1..].char_indices();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' => return Ok((text, start + 1 + at + 1)),
+            '\\' => match chars.next() {
+                Some((_, '"')) => text.push('"'),
+                Some((_, escaped)) => {
+                    text.push('\\');
+                    text.push(escaped);
+                }
+                None => text.push('\\'),
+            },
+            c => text.push(c),
+        }
+    }
+    Err(ReadError::syntax(start - 1, "unterminated #\"regexp\"")
+        .with_hint("close the regexp with \", and write a quote inside it as \\\""))
 }
 
 /// Lexes the integer, float or range at `start`, returning the offset after

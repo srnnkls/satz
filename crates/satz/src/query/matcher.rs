@@ -16,7 +16,7 @@ use super::{Attribute, Environment, Query, RunError};
 use crate::similarity::{Embedding, EmbeddingError, Shingles, lowercase, words};
 
 /// How many joined bindings a run may produce.
-const MAX_BINDINGS: usize = 100_000;
+pub(super) const MAX_BINDINGS: usize = 100_000;
 
 /// Variables bound by one match, the nodes it captured, and the constraints
 /// still waiting for their variables.
@@ -550,6 +550,21 @@ impl<'q, 't> Matcher<'q, 't> {
             b.unequal.iter().chain(&other.unequal).cloned().collect();
         let mut scores = Vec::new();
         for c in &unequal {
+            if let Relate::Compare(comparison, expr) = c.relate {
+                let number = |name: &str| vars.get(name).and_then(|v| v.parse::<f64>().ok());
+                let bound = expr.vars().iter().all(|name| vars.contains_key(*name));
+                if bound {
+                    let limit = expr.eval(&number, &|operand| self.env.number(operand));
+                    let value = c.value.parse::<f64>().ok();
+                    let holds = value
+                        .zip(limit)
+                        .is_some_and(|(v, l)| comparison.holds(v, l));
+                    if !holds {
+                        return None;
+                    }
+                }
+                continue;
+            }
             let Some(value) = vars.get(c.name) else {
                 continue;
             };
@@ -574,6 +589,7 @@ impl<'q, 't> Matcher<'q, 't> {
     fn satisfies(&mut self, c: &Constraint<'q>, bound: &str) -> Option<f64> {
         let value = c.value.as_str();
         let holds = match c.relate {
+            Relate::Compare(..) => true,
             Relate::Not => value != bound,
             Relate::After => value > bound,
             Relate::Before => value < bound,

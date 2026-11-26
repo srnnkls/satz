@@ -258,7 +258,8 @@ replacement.
   own keys.
 - `(define (name ?var @capture ...) pattern...)` names a pattern. Callers
   pass the variables and captures it binds; every other variable stays local
-  to each use.
+  to each use. A define that calls itself or is defined more than once is
+  [recursive](query.md#defines-and-imports).
 - `(import module)` brings in a module's defines, as `(import std/structure)`
   brings in `repeated-heading`. Names that would collide are an error.
 
@@ -281,7 +282,26 @@ joins each banned title with the headings that repeat it.
 | `:shared @a @b` | fills `shared_phrases` and `{shared}` with up to five shared phrases |
 
 A `{?var}` counts as a use of the variable, and rows that print different
-values stay separate findings.
+values stay separate findings. Placeholders take the filters of
+[edit templates](query.md#edits), as in `{?t|lower}`.
+
+### Fixes
+
+A rule whose query ends in [edit forms](query.md#edits) fixes what it
+finds. `satz lint --fix` reports the findings, then applies the edits of
+every rule that found something and names each file it wrote on stderr:
+
+````md
+## shouting-heading
+
+Headings are not written in capitals.
+
+```tq
+(rule shouting-heading :message "heading {@h.text} shouts"
+  (heading :level ?l :text /^[A-Z ]+$/) @h
+  (replace @h "{?l|times:#} {@h.text|capitalize}"))
+```
+````
 
 ### Grouped rules
 

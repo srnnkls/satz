@@ -1,15 +1,15 @@
 //! The module reader: a module's `(rule …)`, `(define …)` and `(import …)`
-//! forms, and the placeholders of rule messages.
+//! forms.
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::ops::Range;
 
 use super::{RuleId, Severity};
 use crate::query::{
     Defines, Kind, ParamKind, Query, ReadError, ReadErrorKind, Reader, Schema, Token, suggest,
     unexpected,
 };
+use crate::template::{Sigil, placeholders};
 
 /// A lint rule a module declares: a query and how to report its rows.
 #[derive(Debug, Clone)]
@@ -287,91 +287,4 @@ impl Head {
         }
         Ok(())
     }
-}
-
-/// What a message placeholder reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Sigil {
-    /// `{@capture}`, or `{@capture.key}`.
-    Capture,
-    /// `{?var}`.
-    Var,
-    /// `{$param}`.
-    Param,
-}
-
-/// A `{@capture.key}`, `{?var}` or `{$param}` placeholder of a message.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Placeholder<'a> {
-    pub(crate) sigil: Sigil,
-    /// The capture, variable or param name.
-    pub(crate) name: &'a str,
-    /// The key after the dot, such as `line` in `{@x.line}`.
-    pub(crate) key: Option<&'a str>,
-    /// The byte span of the whole placeholder, braces included.
-    pub(crate) span: Range<usize>,
-}
-
-/// The placeholders of `message`, in order.
-pub(crate) fn placeholders(message: &str) -> Vec<Placeholder<'_>> {
-    let bytes = message.as_bytes();
-    let mut found = Vec::new();
-    let mut i = 0;
-    while let Some(offset) = message[i..].find('{') {
-        let start = i + offset;
-        match placeholder(message, start) {
-            Some(placeholder) => {
-                i = placeholder.span.end;
-                found.push(placeholder);
-            }
-            None => i = start + 1,
-        }
-        if i >= bytes.len() {
-            break;
-        }
-    }
-    found
-}
-
-fn placeholder(message: &str, start: usize) -> Option<Placeholder<'_>> {
-    let bytes = message.as_bytes();
-    let sigil = match bytes.get(start + 1)? {
-        b'@' => Sigil::Capture,
-        b'?' => Sigil::Var,
-        b'$' => Sigil::Param,
-        _ => return None,
-    };
-    let name_start = start + 2;
-    let name_end = run(bytes, name_start, |c, first| {
-        c.is_ascii_alphabetic() || c == b'_' || !first && (c.is_ascii_digit() || c == b'-')
-    });
-    if name_end == name_start {
-        return None;
-    }
-    let mut key = None;
-    let mut end = name_end;
-    if bytes.get(end) == Some(&b'.') {
-        let key_end = run(bytes, end + 1, |c, first| {
-            c.is_ascii_alphanumeric() || c == b'_' || !first && (c == b'.' || c == b'-')
-        });
-        if key_end == end + 1 {
-            return None;
-        }
-        key = Some(&message[end + 1..key_end]);
-        end = key_end;
-    }
-    (bytes.get(end) == Some(&b'}')).then(|| Placeholder {
-        sigil,
-        name: &message[name_start..name_end],
-        key,
-        span: start..end + 1,
-    })
-}
-
-fn run(bytes: &[u8], start: usize, accept: impl Fn(u8, bool) -> bool) -> usize {
-    let mut end = start;
-    while end < bytes.len() && accept(bytes[end], end == start) {
-        end += 1;
-    }
-    end
 }
