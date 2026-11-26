@@ -191,6 +191,17 @@ $ tela query '(headng) @h' 2>/dev/null
 [2]
 ```
 
+`tela query` registers no unit, so a relation does not read.
+
+```scrut
+$ tela query '(link (to (section) @t)) @l' 2>&1
+tela: (to ...) relates units, and the schema has none
+  (link (to (section) @t)) @l
+         ^
+  register a unit in the schema, or match links with (link :url ...)
+[2]
+```
+
 `(similar …)` needs a model from `--model` or `[lint.semantic] model_path`.
 
 ```scrut
