@@ -22,7 +22,8 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/srnnkls/satz/releases/l
 ```
 
 The installer fetches the `satz` binary for macOS or Linux from the latest
-[release](https://github.com/srnnkls/satz/releases). From source:
+[release](https://github.com/srnnkls/satz/releases), with `sq`, short for
+`satz query`. From source:
 
 ```sh
 cargo install --locked --git https://github.com/srnnkls/satz satz-cli
