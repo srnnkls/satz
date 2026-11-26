@@ -8,20 +8,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use satz::lint::Corpus;
-use satz::query::{Capture, Environment, Hit, Query, Row, Schema, Value};
+use satz::lint::{Config, Corpus, Settings, Spec};
+use satz::query::{Capture, Environment, Hit, Query, Row, Value};
 use satz::{NodeRef, Tree};
 use serde_json::{Map, Number, Value as Json};
 
 use crate::config::{self, Source};
 use crate::failure::Failure;
-use crate::{Status, input, json};
+use crate::{Status, edits, input, json, lint};
 
 /// A snippet longer than this many characters is cut.
 const SNIPPET: usize = 80;
 
 #[derive(Debug, clap::Args)]
-#[command(group = clap::ArgGroup::new("output").args(["json", "text", "count"]))]
+#[command(group = clap::ArgGroup::new("output").args(["json", "text", "count", "write"]))]
 pub(crate) struct Args {
     /// The tq pattern.
     pattern: String,
@@ -29,15 +29,8 @@ pub(crate) struct Args {
     /// (repeatable).
     #[arg(long = "path", value_name = "PATH")]
     paths: Vec<PathBuf>,
-    /// Print rows as JSON objects keyed by capture.
-    #[arg(long)]
-    json: bool,
-    /// Print whole node texts.
-    #[arg(long)]
-    text: bool,
-    /// Print the number of rows.
-    #[arg(long)]
-    count: bool,
+    #[command(flatten)]
+    output: Output,
     /// Order rows by ?var, @value or @capture.key, descending with a leading -.
     #[arg(long, value_name = "KEY", allow_hyphen_values = true)]
     sort: Option<String>,
@@ -50,12 +43,35 @@ pub(crate) struct Args {
         help = "The Model2Vec directory for (similar …) [default: [lint.semantic] model_path]"
     )]
     model: Option<PathBuf>,
+    /// Apply the query's edits to the files instead of printing their diff.
+    #[arg(long)]
+    write: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct Output {
+    /// Print rows as JSON objects keyed by capture.
+    #[arg(long)]
+    json: bool,
+    /// Print whole node texts.
+    #[arg(long)]
+    text: bool,
+    /// Print the number of rows.
+    #[arg(long)]
+    count: bool,
 }
 
 pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<Status, Failure> {
-    let query = Query::read(&args.pattern, &Schema::core(), args.sort.as_deref())
+    let frontends = input::frontends()?;
+    let mut spec = Spec::default();
+    config::DEFAULT.clone_into(&mut spec.labels.inline);
+    spec.schema = frontends.schema().map_err(|error| Failure::chain(&error))?;
+    let modules = Config::new(lint::layers()?, spec, Settings::default())
+        .map_err(|error| Failure::chain(&error))?;
+    let query = modules
+        .query(&args.pattern, args.sort.as_deref())
         .map_err(|error| Failure::explain(&args.pattern, &error))?;
-    let trees = input::read(&args.paths, &input::frontends()?)?;
+    let trees = input::read(&args.paths, &frontends)?;
     let mut environment = Environment::new(SystemTime::now());
     if query.is_semantic() {
         let dir = match &args.model {
@@ -72,8 +88,26 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
     let mut rows = query
         .run(&corpus.tree, &corpus.environment)
         .map_err(|error| Failure::chain(&error))?;
+    if query.has_edits() {
+        let Output { json, text, count } = args.output;
+        if json || text || count || args.limit.is_some() {
+            return Err(Failure::new(
+                "a query with edits prints their diff; drop --json, --text, --count and --limit",
+            ));
+        }
+        let changes = query.changes(&rows, &corpus.tree, &corpus.environment.params);
+        if edits::emit(changes, args.write, out)? == 0 {
+            eprintln!("satz: no edits");
+        }
+        return Ok(Status::Clean);
+    }
+    if args.write {
+        return Err(Failure::new(
+            "--write applies edits, and the query makes none",
+        ));
+    }
     let total = rows.len();
-    if args.count {
+    if args.output.count {
         writeln!(out, "{total}")?;
         return Ok(Status::Clean);
     }
@@ -84,12 +118,12 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
         query: &query,
         tree: &corpus.tree,
     };
-    if args.json {
+    if args.output.json {
         json::write(out, &printer.json(&rows))?;
     } else if rows.is_empty() {
         eprintln!("satz: no matches");
     } else {
-        printer.listing(out, &rows, args.text)?;
+        printer.listing(out, &rows, args.output.text)?;
         if rows.len() < total {
             eprintln!("satz: {} of {total} rows shown", rows.len());
         }

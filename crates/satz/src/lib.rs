@@ -174,12 +174,14 @@
 //! ```
 #![forbid(unsafe_code)]
 
+pub mod edit;
 pub mod frontend;
 pub mod lint;
 pub mod markdown;
 pub mod plain;
 pub mod query;
 pub mod similarity;
+mod template;
 pub mod tree;
 
 pub use frontend::{Frontend, Frontends};

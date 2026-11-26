@@ -2,16 +2,16 @@
 //! into diagnostics.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::iter;
+use std::{iter, slice};
 
 use super::compile::Compiled;
 use super::load::{Clause, Method};
-use super::module::{Placeholder, Sigil, placeholders};
 use super::{
     Corpus, Diagnostic, Example, Expect, Outcome, Plan, RuleId, RunError, Score, Selection,
 };
-use crate::query::{self, Capture, Environment, Hit, Row, Table, Value};
+use crate::query::{self, Environment, Hit, Row, Table, Value};
 use crate::similarity::{Shingles, fold};
+use crate::template::{hit, number, render};
 use crate::tree::{NodeRef, Origin, Position, Tree};
 
 /// How many shared phrases a finding reports.
@@ -167,8 +167,12 @@ impl Plan {
             .unwrap_or_default();
         let message = render(&rule.message, row, tree, &environment.params)
             .replace("{shared}", &shared.join("; "));
-        let diagnostic =
-            Diagnostic::new(rule.id.clone(), origin, rule.severity, message).with_related(related);
+        let fixes = rule
+            .query
+            .changes(slice::from_ref(row), tree, &environment.params);
+        let diagnostic = Diagnostic::new(rule.id.clone(), origin, rule.severity, message)
+            .with_related(related)
+            .with_fixes(fixes);
         Some(match score(clause, row, shared, environment) {
             Some(score) => diagnostic.with_score(score),
             None => diagnostic,
@@ -243,13 +247,6 @@ fn node<'t>(row: &Row, tree: &'t Tree, name: &str) -> Option<NodeRef<'t>> {
     }
 }
 
-fn hit<'r>(row: &'r Row, name: &str) -> Option<&'r Hit> {
-    match row.captures.get(name)? {
-        Capture::Nodes(hits) | Capture::Collected(hits) => hits.first(),
-        Capture::Value(_) | Capture::Values(_) => None,
-    }
-}
-
 fn shared_phrases(a: NodeRef<'_>, b: NodeRef<'_>) -> Vec<String> {
     let a = Shingles::of(&a.node().text, Shingles::DEFAULT_SIZE);
     let b = Shingles::of(&b.node().text, Shingles::DEFAULT_SIZE);
@@ -278,13 +275,6 @@ fn score(
                 .unwrap_or_default(),
         },
     })
-}
-
-fn number(value: &Value) -> Option<f64> {
-    match value {
-        Value::Number(n) => Some(*n),
-        Value::Text(text) => text.parse().ok(),
-    }
 }
 
 /// `origin` moved to where `value` first appears in the node's `text`,
@@ -330,79 +320,4 @@ fn find_folded(text: &str, value: &str) -> Option<usize> {
 
 fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
-}
-
-/// `message` with its placeholders filled from `row` and `params`.
-fn render(message: &str, row: &Row, tree: &Tree, params: &BTreeMap<String, Value>) -> String {
-    let mut rendered = String::with_capacity(message.len());
-    let mut last = 0;
-    for placeholder in placeholders(message) {
-        rendered.push_str(&message[last..placeholder.span.start]);
-        rendered.push_str(&fill(&placeholder, row, tree, params));
-        last = placeholder.span.end;
-    }
-    rendered.push_str(&message[last..]);
-    rendered
-}
-
-fn fill(
-    placeholder: &Placeholder<'_>,
-    row: &Row,
-    tree: &Tree,
-    params: &BTreeMap<String, Value>,
-) -> String {
-    let name = placeholder.name;
-    match placeholder.sigil {
-        Sigil::Param => params.get(name).map(Value::to_string).unwrap_or_default(),
-        Sigil::Var => row
-            .vars
-            .get(name)
-            .map(|value| format(&Value::Text(value.clone()), placeholder.key))
-            .unwrap_or_default(),
-        Sigil::Capture => {
-            if let Some(value) = row.value(name) {
-                return format(value, placeholder.key);
-            }
-            match hit(row, name) {
-                Some(Hit::Node(id)) => tree
-                    .get(*id)
-                    .map(|node| field(node, placeholder.key))
-                    .unwrap_or_default(),
-                Some(Hit::Row(attrs)) => placeholder
-                    .key
-                    .and_then(|key| attrs.get(key))
-                    .cloned()
-                    .unwrap_or_default(),
-                None => String::new(),
-            }
-        }
-    }
-}
-
-/// A value under a format: `percent`, or a number of decimals.
-fn format(value: &Value, spec: Option<&str>) -> String {
-    match (number(value), spec) {
-        (Some(n), Some("percent")) => format!("{:.1}%", n * 100.0),
-        (Some(n), Some(spec)) => spec
-            .parse::<usize>()
-            .map_or_else(|_| value.to_string(), |digits| format!("{n:.digits$}")),
-        _ => value.to_string(),
-    }
-}
-
-/// A captured node's `key`: its location `file:line` without one, its
-/// `line`, `column`, trimmed `text` or `lines` read from its origin, or an
-/// attribute.
-fn field(node: NodeRef<'_>, key: Option<&str>) -> String {
-    let node = node.node();
-    let position = node.origin.position();
-    let line = position.map_or(1, Position::line);
-    match key {
-        None => format!("{}:{line}", node.origin.file()),
-        Some("line") => line.to_string(),
-        Some("column") => position.map_or(1, Position::column).to_string(),
-        Some("text") => node.text.trim().to_owned(),
-        Some("lines") => query::lines(node).to_string(),
-        Some(key) => node.attrs.get(key).cloned().unwrap_or_default(),
-    }
 }

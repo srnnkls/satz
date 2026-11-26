@@ -8,7 +8,7 @@
 
 use std::env;
 use std::fmt;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -24,7 +24,7 @@ use serde::{Serialize, Serializer};
 
 use crate::config::{self, Source};
 use crate::failure::Failure;
-use crate::{Status, input, json};
+use crate::{Status, edits, input, json};
 
 #[derive(Debug, clap::Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -42,6 +42,9 @@ pub(crate) struct Args {
     /// Rules to disable (comma-separated, repeatable).
     #[arg(long, value_name = "RULE", value_delimiter = ',')]
     disable: Vec<String>,
+    /// Apply the edits of the rules that found something.
+    #[arg(long)]
+    fix: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -66,14 +69,16 @@ pub(crate) fn run(args: &Args, source: &Source, out: &mut impl Write) -> Result<
         settings.disable.insert(id);
     }
     let environment = environment(settings.semantic, model.as_deref())?;
+    let frontends = input::frontends()?;
     let mut spec = Spec::default();
     config::DEFAULT.clone_into(&mut spec.labels.inline);
+    spec.schema = frontends.schema().map_err(|error| Failure::chain(&error))?;
     let config = Config::new(layers()?, spec, settings).map_err(|error| Failure::chain(&error))?;
     let plan = Plan::compile(&config).map_err(|error| compiled(&error, config.settings()))?;
     if let Some(Command::Test) = &args.command {
         return test(&plan, &environment, out);
     }
-    let trees = input::read(&args.paths, &input::frontends()?)?;
+    let trees = input::read(&args.paths, &frontends)?;
     let corpus = Corpus::new(trees, environment).map_err(|error| Failure::chain(&error))?;
     let diagnostics = plan
         .run(&corpus, &Selection::All)
@@ -96,6 +101,10 @@ pub(crate) fn run(args: &Args, source: &Source, out: &mut impl Write) -> Result<
                 )?;
             }
         }
+    }
+    if args.fix {
+        let fixes = diagnostics.iter().flat_map(Diagnostic::fixes).cloned();
+        edits::emit(fixes.collect(), true, &mut io::stderr())?;
     }
     let failing = diagnostics
         .iter()
@@ -120,7 +129,7 @@ fn environment(semantic: bool, dir: Option<&Path>) -> Result<Environment, Failur
 }
 
 /// The module layers that exist: the user's, then the project's.
-fn layers() -> Result<Vec<Layer>, Failure> {
+pub(crate) fn layers() -> Result<Vec<Layer>, Failure> {
     let user = env::var_os("XDG_CONFIG_HOME")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)

@@ -100,6 +100,7 @@ satz query '(code :inline true :matches /^make (?<target>\w+)$/) @c (section :id
 satz query '(file :path ?p) @f (not (file :path ?p (table)))'
 satz query '(file :path ?f (paragraph) @p) (group ?f (count @p @n) (sum :words @p @words))'
 satz query '(paragraph :words ?w @w) @p' --sort '-@w' --limit 3
+satz query '(section :level ?a > (section :level (> (+ ?a 1))) @skip)'
 ```
 
 ## Types
@@ -155,10 +156,19 @@ type such as a document set, through its schema; see the crate documentation.
   `80..` or `..20`. A number may be decimal: `:level 2.0` is `:level 2`.
 - Any numeric value takes `(> n)`, `(>= n)`, `(< n)` or `(<= n)`; a
   `YYYY-MM-DD` date takes `(older days)`, counted from now.
+- A comparison also takes a `?variable` or arithmetic over variables,
+  numbers and `$params`: `(+ a b …)`, `(- a b …)`, `(- a)`, `(* a b …)` and
+  `(/ a b …)`; dividing by 0 matches nothing.
+  Arithmetic alone compares equal: `:level (+ ?l 1)` is one level below `?l`,
+  and `:words (> (* ?w 2))` more than twice `?w`. Values that are not numbers
+  fail the comparison.
 - Other values compare exactly. Quote them with `"`, or leave single words
   bare.
 - A `/regexp/` matches any key, as in `:url /^https:/` or `:title /^Phase/`.
-  See [Regular expressions](#regular-expressions).
+  `#"regexp"` is the same regexp quoted instead, so it holds `/` as is:
+  `:url #"^https://example\.com/"`. Inside it, `\"` is a quote and every
+  other backslash belongs to the regexp. See
+  [Regular expressions](#regular-expressions).
 - A named group binds the variable of its name:
   `:matches /^make (?<target>\w+)$/` binds `?target`. `:text` compares
   trimmed text, `:matches` the text as written.
@@ -223,14 +233,20 @@ sit under `*` or `+` or inside `(not ...)`.
 ## Grammar
 
 ```
-query    := (pattern | "(" "not" pattern ")")+ group?  ; patterns join on shared variables
+query    := form* (pattern | "(" "not" pattern ")")+ (group | edit+)?  ; patterns join on shared variables
+edit     := "(" ("replace" | "insert-before" | "insert-after") @capture "template" ")"
+          | "(" "delete" @capture ")"
+form     := "(" "define" "(" name (?variable | @capture)* ")" pattern+ ")"
+          | "(" "import" module ")"
 pattern  := "(" type item* ")" quant? capture?  ; captures the node
           | "[" pattern+ "]" quant? capture?  ; alternatives
-value    := "string" | word | number | range | /regexp/ | ?variable
-          | $param | "(" "not" value ")" | "(" comparison (number | $param) ")"
+value    := "string" | word | number | range | /regexp/ | #"regexp" | ?variable
+          | $param | "(" "not" value ")" | "(" comparison expr ")" | arith
           | "(" ("after" | "before" | "contains" | "covers" | "within") ?variable ")"
           | "(" ("near" | "overlap" | "similar") ?variable threshold capture? ")"
-comparison := ">" | ">=" | "<" | "<=" | "older"
+comparison := ">" | ">=" | "<" | "<=" | "older"  ; older takes a number or $param
+expr     := number | $param | ?variable | arith
+arith    := "(" ("+" | "-" | "*" | "/") expr+ ")"
 item     := :key value capture? | pattern | ">" pattern | "."  ; captures the value
           | "(" "not" (pattern | relation) ")" | relation
 relation := "(" ("reaches" | "inbound" | "to" | "from") pattern ")"
@@ -310,6 +326,43 @@ $ satz query '(file :path ?p) @f (not (file :path ?p (table)))'
 @f  docs/notes.md  file
 ```
 
+## Defines and imports
+
+Forms before the patterns name patterns for the query to call, as lint
+modules do (see [satz lint](lint.md#forms)):
+
+- `(define (name ?var @capture ...) pattern...)` names a pattern. A call
+  passes the variables and captures it binds; every other variable stays
+  local to each call.
+- `(import module)` brings in a module's defines: a std module as
+  `std/structure`, or a module of the user's or the project's layer by its
+  path.
+
+```console
+$ satz query '(define (shell @c) (code :lang "sh") @c) (section :level 2 (shell @c)) @s'
+@c  docs/guide.md#install  L12-14  code  cargo install satz-cli
+@s  docs/guide.md#install  L10-16  section  Install
+```
+
+A define that calls itself, directly or through other defines, or that is
+defined more than once, is recursive. Each definition is a clause, and a
+call matches what any clause derives: the clauses run over the tree and
+over what they derived so far until nothing new follows. Every query
+terminates, since values only ever come from the tree. A recursive define:
+
+- takes `?variables` only, and is called at the top level of a query or a
+  clause, joined to its patterns on shared variables, without a capture;
+- may be negated at the top level of a query, as `(not (reach ?p ?p))`, but
+  not inside its own clauses or those of the defines it calls.
+
+Files that reach `c.md` through links, at any distance:
+
+```
+satz query '(define (reach ?a ?b) (file :path ?a (link :url ?b)))
+            (define (reach ?a ?b) (file :path ?a (link :url ?m)) (reach ?m ?b))
+            (file :path ?p) @f (reach ?p "c.md")'
+```
+
 ## Grouping
 
 `(group ...)` ends a query. It turns the rows into one row per distinct
@@ -359,6 +412,43 @@ $ satz query '(file (code :inline false)? @c) @f (group @f (count @c @n))'
 @n  0
 ```
 
+## Edits
+
+Edit forms end a query instead of `(group ...)`. Each acts on every node a
+capture holds, in every row:
+
+- `(replace @c "template")` puts the template's text in place of the node.
+- `(delete @c)` removes the node. A node on lines of its own goes with its
+  line break, and with a blank line that would otherwise double the one
+  before it or end the file.
+- `(insert-before @c "template")` and `(insert-after @c "template")` insert
+  the text where the node starts or ends. Line breaks are the template's
+  own: write `\n` in the string.
+
+A node spans its source from its first marker: a heading includes its `#`s,
+a list item its bullet.
+
+Templates take the placeholders of lint messages (see
+[Rule keys](lint.md#rule-keys)), `{@c.text}` for a node's text among them,
+and filters after `|`: `lower`, `upper`, `capitalize`, `trim` and
+`times:TEXT`, which repeats `TEXT` as often as the value counts.
+
+`satz query` prints the edits as a unified diff, and applies them with
+`--write`, naming each file it wrote. Two edits that touch the same bytes
+are an error, and nothing is written.
+
+```console
+$ satz query '(heading :level ?l :text ?t) @h (replace @h "{?l|times:#} {?t|upper}")' --path docs/notes.md
+--- docs/notes.md
++++ docs/notes.md
+@@ -1,1 +1,1 @@
+-# Notes
++# NOTES
+@@ -5,1 +5,1 @@
+-## Review
++## REVIEW
+```
+
 ## Rejected queries
 
 The reader rejects a query with a message, the query line, a caret under the
@@ -395,7 +485,7 @@ It rejects:
 
 ## Regular expressions
 
-`:matches` and `/regexp/` values compile with the Rust
+`:matches`, `/regexp/` and `#"regexp"` values compile with the Rust
 [`regex`](https://docs.rs/regex) crate. Its syntax is RE2's, the syntax of
 Go's `regexp`, with these differences:
 

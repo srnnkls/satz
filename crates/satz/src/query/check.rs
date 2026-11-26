@@ -107,12 +107,12 @@ impl Walk {
                 negated: place.negated,
                 prior: place.prior.clone(),
             };
-            if let Some(var) = attr.var() {
-                let role = if matches!(attr.check, Check::Bind(_)) {
-                    Role::Bind
-                } else {
-                    Role::Compare
-                };
+            let role = if matches!(attr.check, Check::Bind(_)) {
+                Role::Bind
+            } else {
+                Role::Compare
+            };
+            for var in attr.vars() {
                 self.mentions
                     .push(mention(var, role, attr.capture.is_some()));
             }

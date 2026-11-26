@@ -1,9 +1,10 @@
 //! A run's view of the tree and the environment's data tables: every node in
 //! document order, addressed by its position in that order.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use super::predicate::{Facts, fact_kind};
 use super::{CORPUS, Hit, Table};
 use crate::tree::{Node, NodeId, NodeRef, Origin, Tree};
 
@@ -29,10 +30,11 @@ pub(super) struct View<'t> {
     pub(super) by_id: HashMap<NodeId, usize>,
 }
 
-/// The data tables as a corpus holding a `data` node of `row` nodes, tables
-/// in name order and rows in table order.
-pub(super) fn data_tree(tables: &BTreeMap<String, Table>) -> Option<Tree> {
-    if tables.is_empty() {
+/// The data tables and relation facts as a corpus holding a `data` node of
+/// `row` nodes, tables in name order and rows in table order, then of fact
+/// nodes, relations in name order and facts in value order.
+pub(super) fn data_tree(tables: &BTreeMap<String, Table>, facts: &Facts) -> Option<Tree> {
+    if tables.is_empty() && facts.values().all(BTreeSet::is_empty) {
         return None;
     }
     let origin = Origin::named(&Arc::from(""), None);
@@ -58,6 +60,15 @@ pub(super) fn data_tree(tables: &BTreeMap<String, Table>) -> Option<Tree> {
             row.attrs.insert("value".to_owned(), value.to_owned());
             row.attrs.insert(field.to_owned(), at);
             tree.append(holder, row).ok()?;
+        }
+    }
+    for (name, tuples) in facts {
+        for tuple in tuples {
+            let mut fact = Node::new(fact_kind(name), origin.clone());
+            for (i, value) in tuple.iter().enumerate() {
+                fact.attrs.insert(i.to_string(), value.clone());
+            }
+            tree.append(holder, fact).ok()?;
         }
     }
     Some(tree)

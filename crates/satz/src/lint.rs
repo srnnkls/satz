@@ -21,7 +21,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use self::compile::Compiled;
-use crate::query::{self, CORPUS, Environment, ParamKind, Schema, Table, TableKind, Value};
+use crate::edit::Change;
+use crate::query::{
+    self, CORPUS, Environment, ParamKind, Query, ReadError, Schema, Table, TableKind, Value,
+};
 use crate::tree::{Node, Origin, Tree, TreeError};
 
 /// A rule id: non-empty, without whitespace, such as `duplicate-heading`.
@@ -163,6 +166,7 @@ pub struct Diagnostic {
     message: String,
     related: Vec<Origin>,
     score: Option<Score>,
+    fixes: Vec<Change>,
 }
 
 impl Diagnostic {
@@ -181,6 +185,7 @@ impl Diagnostic {
             message: message.into(),
             related: Vec::new(),
             score: None,
+            fixes: Vec::new(),
         }
     }
 
@@ -232,6 +237,19 @@ impl Diagnostic {
     #[must_use]
     pub fn score(&self) -> Option<&Score> {
         self.score.as_ref()
+    }
+
+    /// The finding with the changes that fix it.
+    #[must_use]
+    pub fn with_fixes(mut self, fixes: Vec<Change>) -> Self {
+        self.fixes = fixes;
+        self
+    }
+
+    /// The changes the rule's edits make to fix it.
+    #[must_use]
+    pub fn fixes(&self) -> &[Change] {
+        &self.fixes
     }
 }
 
@@ -531,6 +549,22 @@ impl Config {
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
+
+    /// Reads the query `source` against the spec's schema, as
+    /// [`Query::read`] does; its `(import …)` forms name the std modules and
+    /// those of the layers.
+    ///
+    /// # Errors
+    /// Returns [`ReadError`] when the source is not a valid query, or an
+    /// import names a module that is missing or does not compile.
+    pub fn query(&self, source: &str, sort: Option<&str>) -> Result<Query, ReadError> {
+        let mut loader = load::Loader::new(&self.layers, &self.spec);
+        let importer = move |name: &str| match &mut loader {
+            Ok(loader) => loader.defines(name),
+            Err(error) => Err(error.to_string()),
+        };
+        Query::read_importing(source, &self.spec.schema, sort, Some(Box::new(importer)))
+    }
 }
 
 /// A compiled rule's identity and declared metadata.
@@ -674,7 +708,7 @@ pub enum CompileError {
         /// The module line of the error.
         line: u32,
         /// The reader's error.
-        source: query::ReadError,
+        source: ReadError,
     },
     /// An inline rule did not read; the error's offset is within its query.
     #[error("module {module:?}, rule {rule}")]
@@ -684,7 +718,7 @@ pub enum CompileError {
         /// The rule.
         rule: RuleId,
         /// The reader's error.
-        source: query::ReadError,
+        source: ReadError,
     },
     /// A rule reports a `:score` without a known `:method`.
     #[error("module {module:?}, rule {rule}: :score needs :method jaccard, containment or cosine")]

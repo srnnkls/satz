@@ -7,9 +7,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::frontend::Frontend;
-use crate::lint::module::{Module, Sigil, placeholders};
+use crate::lint::module::Module;
 use crate::markdown::Markdown;
 use crate::similarity::{Embed, EmbedError};
+use crate::template::{Sigil, placeholders};
 use crate::tree::{Node, NodeRef, Origin};
 
 fn schema() -> Schema {
@@ -33,6 +34,7 @@ fn schema() -> Schema {
             id_key: "id".to_owned(),
             qualifier_key: Some("package".to_owned()),
         }),
+        ..SchemaSpec::default()
     })
     .unwrap()
 }
@@ -1434,7 +1436,7 @@ fn read_module_errors() {
         ),
         (
             r#"(define (loop ?a) (loop ?a)) (rule r :message "m" (loop "x") @h)"#,
-            "expands without end",
+            "is a recursive define of values, so it takes no quantifier or capture",
         ),
         (
             r#"(define (one ?a) (heading :text ?a)) (rule r :message "m" (one) @h)"#,
@@ -1799,6 +1801,7 @@ fn skill_spec() -> SchemaSpec {
             id_key: "id".to_owned(),
             qualifier_key: Some("package".to_owned()),
         }),
+        ..SchemaSpec::default()
     }
 }
 
@@ -1867,4 +1870,134 @@ fn values_print_like_henia() {
     assert_eq!(Value::Number(3.0).to_string(), "3");
     assert_eq!(Value::Number(0.25).to_string(), "0.25");
     assert_eq!(Value::Text("x".to_owned()).to_string(), "x");
+}
+
+fn files(docs: &[(&str, &str)]) -> Tree {
+    let trees = docs.iter().map(|(file, text)| {
+        let mut tree = Markdown::new().parse(file, text);
+        let root = tree.root().id();
+        if let Some(node) = tree.node_mut(root) {
+            node.attrs.insert("path".to_owned(), (*file).to_owned());
+        }
+        tree
+    });
+    crate::lint::Corpus::new(trees, Environment::new(UNIX_EPOCH))
+        .unwrap()
+        .tree
+}
+
+fn texts(rows: &[Row], tree: &Tree, capture: &str) -> Vec<String> {
+    rows.iter()
+        .filter_map(|row| match row.captures.get(capture) {
+            Some(Capture::Nodes(hits)) => match hits.first() {
+                Some(Hit::Node(id)) => tree.get(*id).map(|n| n.node().text.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn comparisons_take_arithmetic_over_variables() {
+    let tree = files(&[(
+        "a.md",
+        "# A\n\n## B\n\n#### Skipped\n\n### C\n\n##### Deep\n",
+    )]);
+    let query = Query::read(
+        "(section :level ?a > (section :level (> (+ ?a 1))) @s)",
+        &Schema::core(),
+        None,
+    )
+    .unwrap();
+    let rows = query.run(&tree, &Environment::new(UNIX_EPOCH)).unwrap();
+    let titles: Vec<String> = texts(&rows, &tree, "s")
+        .iter()
+        .map(|text| text.lines().next().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(titles.len(), 2, "{titles:?}");
+    for (source, message) in [
+        ("(heading :level (> (+ 1 2))) @h", "a constant"),
+        ("(heading :level (* ?a)) @h", "at least 2 arguments"),
+    ] {
+        let error = Query::read(source, &Schema::core(), None).unwrap_err();
+        assert!(error.message().contains(message), "{source}: {error:?}");
+    }
+}
+
+#[test]
+fn recursive_defines_derive_facts_to_a_fixpoint() {
+    let tree = files(&[
+        ("a.md", "# A\n\n[b](b.md)\n"),
+        ("b.md", "# B\n\n[c](c.md)\n"),
+        ("c.md", "# C\n\nEnd.\n"),
+    ]);
+    let defines = "(define (reach ?a ?b) (file :path ?a (link :url ?b))) \
+                   (define (reach ?a ?b) (file :path ?a (link :url ?m)) (reach ?m ?b))";
+    let read = |query: &str| Query::read(&format!("{defines} {query}"), &Schema::core(), None);
+    let query = read(r#"(file :path ?p) @f (reach ?p "c.md")"#).unwrap();
+    let rows = query.run(&tree, &Environment::new(UNIX_EPOCH)).unwrap();
+    let reached: Vec<&str> = rows.iter().map(|row| row.vars["p"].as_str()).collect();
+    assert_eq!(reached, ["a.md", "b.md"]);
+    for (source, message) in [
+        ("(section (reach ?a ?b)) @s", "called at the top level"),
+        (
+            "(file :path ?a) @f (reach ?a ?b) @r",
+            "takes no quantifier or capture",
+        ),
+    ] {
+        let error = read(source).unwrap_err();
+        assert!(error.message().contains(message), "{source}: {error:?}");
+    }
+    let negated = "(define (odd ?a) (file :path ?a) (not (odd ?a))) (file :path ?p) @f (odd ?p)";
+    let error = Query::read(negated, &Schema::core(), None).unwrap_err();
+    assert!(error.message().contains("still growing"), "{error:?}");
+}
+
+#[test]
+fn edits_change_the_file_text_past_the_frontmatter() {
+    let text = "---\ntitle: T\n---\n\n# Guide\n\n## SETUP\n\nRun it.\n";
+    let tree = files(&[("a.md", text)]);
+    let query = Query::read(
+        r#"(heading :level ?l :text ?t) @h (replace @h "{?l|times:#} {?t|capitalize}")"#,
+        &Schema::core(),
+        None,
+    )
+    .unwrap();
+    let env = Environment::new(UNIX_EPOCH);
+    let rows = query.run(&tree, &env).unwrap();
+    let changes = query.changes(&rows, &tree, &env.params);
+    let edited = crate::edit::apply(text, &changes).unwrap();
+    assert_eq!(
+        edited,
+        "---\ntitle: T\n---\n\n# Guide\n\n## Setup\n\nRun it.\n"
+    );
+    let error = Query::read(r#"(heading) @h (replace @x "y")"#, &Schema::core(), None).unwrap_err();
+    assert!(error.message().contains("captures no node"), "{error:?}");
+}
+
+#[test]
+fn division_follows_an_open_paren_and_hash_quotes_hold_slashes() {
+    let tree = files(&[(
+        "a.md",
+        "# A\n\n[x](https://example.com/a) and [y](docs/b.md)\n\n## B\n\n#### D\n",
+    )]);
+    let env = Environment::new(UNIX_EPOCH);
+    let count = |source: &str| {
+        let query = Query::read(source, &Schema::core(), None).unwrap();
+        query.run(&tree, &env).unwrap().len()
+    };
+    assert_eq!(
+        count("(heading :level ?a) @h (heading :level (/ ?a 2)) @half"),
+        2
+    );
+    assert_eq!(
+        count("(heading :level ?a) @h (heading :level (> (/ ?a 0))) @g"),
+        0
+    );
+    assert_eq!(count(r#"(link :url #"^https://example\.com/") @l"#), 1);
+    assert_eq!(count(r#"(link :url #"^docs/") @l"#), 1);
+    assert_eq!(count(r"(link :url /^https:\/\//) @l"), 1);
+    let error = Query::read(r#"(link :url #"^docs/) @l"#, &Schema::core(), None).unwrap_err();
+    assert!(error.message().contains("unterminated"), "{error:?}");
 }

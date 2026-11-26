@@ -8,6 +8,7 @@ use std::path::Path;
 use std::slice;
 use std::sync::Arc;
 
+use crate::query::{Schema, SchemaError, SchemaSpec};
 use crate::tree::Tree;
 
 /// A file format: its name, the extensions it claims and its parser.
@@ -24,6 +25,11 @@ pub trait Frontend: Send + Sync + fmt::Debug {
     /// Parses `text` of `file` into a tree under a file node. Malformed input
     /// becomes `problem` nodes; parsing never fails outright.
     fn parse(&self, file: &str, text: &str) -> Tree;
+
+    /// The node types and keys its trees hold beyond the core schema's.
+    fn schema(&self) -> SchemaSpec {
+        SchemaSpec::default()
+    }
 }
 
 /// Why a registry was rejected.
@@ -139,6 +145,35 @@ impl Frontends {
         self.iter().find(|frontend| claims(*frontend, extension))
     }
 
+    /// The schema of the trees the frontends produce: the core schema with
+    /// every frontend's types and keys; a core type a frontend registers
+    /// takes its keys.
+    ///
+    /// # Errors
+    /// Returns [`SchemaError::UnknownType`] when a frontend adds keys to a
+    /// type no schema registers.
+    pub fn schema(&self) -> Result<Schema, SchemaError> {
+        let core = Schema::core();
+        let merged = self
+            .iter()
+            .map(Frontend::schema)
+            .fold(SchemaSpec::default(), SchemaSpec::merge);
+        let mut spec = SchemaSpec {
+            keys: merged.keys,
+            numeric: merged.numeric,
+            unit: merged.unit,
+            ..SchemaSpec::default()
+        };
+        for kind in merged.types {
+            if core.has_type(&kind.name) {
+                spec.keys.entry(kind.name).or_default().extend(kind.keys);
+            } else {
+                spec.types.push(kind);
+            }
+        }
+        Schema::new(spec)
+    }
+
     /// The frontend for a file the caller named: the one claiming its
     /// extension, else the fallback.
     #[must_use]
@@ -192,6 +227,8 @@ fn claims(frontend: &dyn Frontend, extension: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::tree::{Node, Origin};
 
@@ -232,6 +269,45 @@ mod tests {
 
     fn name(frontend: Option<&dyn Frontend>) -> Option<&str> {
         frontend.map(Frontend::name)
+    }
+
+    #[derive(Debug)]
+    struct Elements;
+
+    impl Frontend for Elements {
+        fn name(&self) -> &'static str {
+            "html"
+        }
+
+        fn extensions(&self) -> &[&str] {
+            &["html"]
+        }
+
+        fn parse(&self, file: &str, _: &str) -> Tree {
+            Tree::new(Node::new("file", Origin::new(file, None).unwrap()))
+        }
+
+        fn schema(&self) -> SchemaSpec {
+            SchemaSpec {
+                types: vec![
+                    crate::query::TypeSpec::new("element", ["tag", "depth"]),
+                    crate::query::TypeSpec::new("link", ["rel"]),
+                ],
+                numeric: BTreeSet::from(["depth".to_owned()]),
+                ..SchemaSpec::default()
+            }
+        }
+    }
+
+    #[test]
+    fn a_frontend_schema_makes_its_types_and_keys_queryable() {
+        let frontends =
+            Frontends::new(vec![fake("plain", &["txt"]), Arc::new(Elements)], None).unwrap();
+        let schema = frontends.schema().unwrap();
+        let read = |source| crate::query::Query::read(source, &schema, None);
+        read(r#"(element :tag "div" :depth 2..3)"#).unwrap();
+        read(r#"(link :rel "next" :url ?u @u)"#).unwrap();
+        assert!(crate::query::Query::read("(element)", &Schema::core(), None).is_err());
     }
 
     #[test]
