@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0](https://github.com/srnnkls/satz/releases/tag/v0.1.0) - 2026-11-26
 
-### Refactor
+First release: structural query and lint over text, as a Rust library (`satz`) and a CLI (`satz`).
 
-- [**breaking**] Rename tela to satz
+### Features
 
-### Miscellaneous Tasks
-
-- Release with loqui's release-plz and cargo-dist blueprint
-
+- A typed tree of nodes with source positions, built by frontends; Markdown (with directives and YAML frontmatter) and plain text ship first.
+- tq, a pattern language over the tree: captures, structure, joins, grouping, aggregates and sorting.
+- Lint rules written in tq, loaded as modules and layers from `satz.toml`, `.satz/lint` and the user config directory, with severities, per-file disabling and runnable examples.
+- Standard rules for duplicates, document structure, links, and lexical and semantic similarity; semantic similarity embeds with Model2Vec behind the `semantic` feature.
+- A Markdown document editor that writes unedited documents back byte for byte.
+- `satz query` and `satz lint` with text and JSON output, and `satz lint test`.
