@@ -1,4 +1,4 @@
-//! The `satz` command: `satz query` prints the rows a tq pattern matches in
+//! The `satz` command: `satz query` prints the rows a sq pattern matches in
 //! Markdown and text files, and `satz lint` checks them against satz's std
 //! rules and the inline rules of `satz.toml`. Results go to stdout and
 //! errors to stderr; exit status 0 is clean, 1 is failing findings and 2 a
@@ -38,7 +38,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Match a tq pattern and print one row per match.
+    /// Match a sq pattern and print one row per match.
     Query(query::Args),
     /// Check files against the lint rules.
     Lint(lint::Args),

@@ -1,4 +1,4 @@
-//! The tq lexer: byte-offset tokens over a query or module source.
+//! The sq lexer: byte-offset tokens over a query or module source.
 
 use std::collections::BTreeMap;
 

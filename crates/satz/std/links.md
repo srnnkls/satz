@@ -11,7 +11,7 @@ data:
 Names listed in the `outdated` table, mapped to their replacements, should not
 appear in text, code spans or link destinations.
 
-```tq
+```sq
 (rule outdated-reference
   :message "\"{@swap.key}\" is marked outdated; use \"{@swap.value}\""
   :at @text

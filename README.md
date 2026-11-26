@@ -8,7 +8,7 @@
 ## About
 
 satz queries and lints text as structure. A frontend parses a format into a
-tree of nodes, tq patterns match that tree, and lint rules written in tq
+tree of nodes, sq patterns match that tree, and lint rules written in sq
 report what they find. The core knows no markup: Markdown and plain text are
 its first frontends.
 
@@ -73,7 +73,7 @@ guide.md:9:4: warning [duplicate-heading] heading repeated; first occurrence on 
 
 ## Documentation
 
-- [satz query](docs/query.md): the tq language, its node types, values,
+- [satz query](docs/query.md): the sq language, its node types, values,
   captures, grouping, output and regular expressions.
 - [satz lint](docs/lint.md): `satz.toml`, inline rules, rule modules and
   their layers, similarity and JSON output.

@@ -11,7 +11,7 @@ params:
 A paragraph of at least `min-words` words copied verbatim elsewhere; Markdown
 syntax counts, so equal labels with different destinations differ.
 
-```tq
+```sq
 (rule duplicate-content
   :message "paragraph duplicates {@original}"
   :at @copy

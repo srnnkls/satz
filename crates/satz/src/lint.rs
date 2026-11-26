@@ -2,7 +2,7 @@
 //! that runs over one corpus and returns satz's own findings.
 //!
 //! A module is a Markdown file: its frontmatter sets `params` and `data`
-//! for its rules, its `tq` code blocks hold `(rule …)`, `(define …)` and
+//! for its rules, its `sq` code blocks hold `(rule …)`, `(define …)` and
 //! `(import …)` forms, and `md` code blocks under a rule's `### Matches` or
 //! `### Passes` heading are the rule's examples. satz's std modules are
 //! `std/duplicates`, `std/similarity`, `std/structure` and `std/links`.
@@ -370,7 +370,7 @@ fn collect_markdown(
 pub struct InlineRule {
     /// The rule id.
     pub id: RuleId,
-    /// The tq query.
+    /// The sq query.
     pub query: String,
     /// The message template.
     pub message: String,
@@ -699,7 +699,7 @@ pub enum CompileError {
         /// The key.
         key: String,
     },
-    /// A module's `tq` blocks did not read; the error's offset is within
+    /// A module's `sq` blocks did not read; the error's offset is within
     /// the block holding it.
     #[error("module {module:?}, line {line}")]
     Read {

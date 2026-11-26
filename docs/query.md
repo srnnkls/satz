@@ -1,7 +1,7 @@
 # satz query
 
-`satz query PATTERN` matches a tq pattern against Markdown and text files and
-prints one row per match, with one line per capture. tq patterns are
+`satz query PATTERN` matches a sq pattern against Markdown and text files and
+prints one row per match, with one line per capture. sq patterns are
 S-expressions over the document tree: a `?variable` constrains or joins, and
 an `@capture` names what a row prints.
 
