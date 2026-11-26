@@ -118,7 +118,7 @@ satz query '(section :level ?a > (section :level (> (+ ?a 1))) @skip)'
 | `link`, `image` | `:url` |
 | `frontmatter` | its scalar keys |
 | `entry` | in `frontmatter`, one per scalar: `:key` (dotted for nested maps), `:value`, `:index` for a list item, and `:tag`, the YAML type, as in `!!str` |
-| `directive` | `:name` and its attributes |
+| `directive` | `:name` and its attributes; inline, also `:label`, the text between its brackets or the label an inline rule claimed |
 | `problem` | `:kind` (`frontmatter` or `markup`) and `:message` |
 | `_` | any type, any key |
 
@@ -128,6 +128,14 @@ holds a cell per column. A row's text is its line from pipe to pipe, and a
 cell's text its trimmed content. Directives follow the generic directive
 syntax: `:name[label]{attrs}` inline, `::name{attrs}` as a leaf and
 `:::name{attrs}` around a block.
+A program embedding satz can give the Markdown frontend further inline
+syntax with `Markdown::with_inline_rule`: the text a rule claims reads as an
+inline `directive`, with the name, label and attributes the rule gives it and
+the position of the text it claimed. The `:name[label]` syntax goes first
+where both match. The frontend's `Markdown::document` and
+`Markdown::empty_document` make documents that render its rules;
+`Document::parse` and `Document::new` use the default frontend, which has
+none. See the crate documentation.
 
 Markup that does not parse becomes a `problem` node under its file, such as an
 unclosed directive or a repeated attribute. Frontmatter that is not valid YAML

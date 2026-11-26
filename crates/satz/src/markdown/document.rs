@@ -210,9 +210,10 @@ impl Snapshot {
     }
 }
 
-/// Parses `text` of `file` into an editable document.
-pub(super) fn parse(file: &str, text: &str) -> Parsed<Document> {
-    let markdown = MARKDOWN.parser.parse(text);
+/// Parses `text` of `file` into an editable document with `frontend`'s
+/// syntax.
+pub(super) fn parse(frontend: &Markdown, file: &str, text: &str) -> Parsed<Document> {
+    let markdown = frontend.parsers.body.parse(text);
     let source = Arc::new(Source {
         file: Arc::from(file),
         text: markdown.source().to_owned(),
@@ -234,6 +235,7 @@ pub(super) fn parse(file: &str, text: &str) -> Parsed<Document> {
             file: file.to_owned(),
             children,
             snapshot: Some(Arc::new(root)),
+            parsers: Arc::clone(&frontend.parsers),
         },
         problems,
     }
@@ -318,7 +320,7 @@ fn convert(source: &Arc<Source>, mut element: Element, indent: usize, limit: usi
             snapshot.lo = lo;
             snapshot.hi = hi;
             snapshot.delimiters = Some(delimiters);
-            item_text = lossy(source.slice(lo..hi));
+            item_text = element.label.take().unwrap_or_default();
         }
         ("directive", None) => snapshot.inline = true,
         _ => {

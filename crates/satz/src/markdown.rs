@@ -24,8 +24,37 @@ use std::sync::Arc;
 pub use frontmatter::{Entry, Frontmatter, YamlNode, YamlValue};
 pub use parse::Markdown;
 
-use self::document::Snapshot;
+use self::document::{MARKDOWN, Snapshot};
+use self::parse::Parsers;
 use crate::tree::Origin;
+
+/// An extra inline syntax of a [`Markdown`] frontend: the text it claims
+/// reads as the inline directive `:name[label]{attrs}` would.
+///
+/// The built-in `:name[label]` syntax runs first; registered rules run in
+/// registration order.
+pub trait InlineRule: Send + Sync + fmt::Debug {
+    /// The character the syntax starts with.
+    fn trigger(&self) -> char;
+
+    /// The directive at the start of `src`, the rest of the inline text from
+    /// the trigger on, if the syntax claims it. It is also called to probe
+    /// text, so it must have no side effects.
+    fn claim(&self, src: &str) -> Option<Claim>;
+}
+
+/// Text an [`InlineRule`] claims and the inline directive it stands for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Claim {
+    /// The bytes claimed, trigger included; a claim of none is declined.
+    pub len: usize,
+    /// The directive name.
+    pub name: String,
+    /// The directive label.
+    pub label: String,
+    /// The directive attributes, in order.
+    pub attrs: Vec<(String, String)>,
+}
 
 /// Malformed input met while parsing a document or its frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -216,16 +245,24 @@ pub struct Document {
     /// The top-level items.
     pub children: Vec<Item>,
     snapshot: Option<Arc<Snapshot>>,
+    parsers: Arc<Parsers>,
 }
 
 impl Document {
-    /// An empty document for `file`.
+    /// An empty document for `file`, rendered with the default frontend's
+    /// syntax and no inline rules; [`Markdown::empty_document`] makes one
+    /// that renders a frontend's inline rules.
     #[must_use]
     pub fn new(file: impl Into<String>) -> Self {
+        Self::empty(file.into(), Arc::clone(&MARKDOWN.parsers))
+    }
+
+    fn empty(file: String, parsers: Arc<Parsers>) -> Self {
         Self {
-            file: file.into(),
+            file,
             children: Vec::new(),
             snapshot: None,
+            parsers,
         }
     }
 
@@ -234,7 +271,7 @@ impl Document {
     /// problems, and the document holds what was read.
     #[must_use]
     pub fn parse(file: &str, text: &str) -> Parsed<Self> {
-        document::parse(file, text)
+        document::parse(&MARKDOWN, file, text)
     }
 
     /// Renders the document's directives in place: as normalized directive

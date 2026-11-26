@@ -2,15 +2,19 @@
 //! by a colon fence, `::name[label]{attrs}` leaves and `:name[label]{attrs}`
 //! inline directives.
 
+use std::sync::Arc;
+
 use markdown_it::MarkdownIt;
 use markdown_it::document::{Document, NodeId, Root};
 use markdown_it::parser::block::{BlockRule, BlockState};
 use markdown_it::parser::inline::{InlineRule, InlineState};
+use markdown_it::plugin::PluginSpec;
 use markdown_it::plugins::cmark::block::blockquote::Blockquote;
 use markdown_it::plugins::cmark::block::fence::CodeFence;
 use markdown_it::plugins::cmark::block::list::{BulletList, ListItem, OrderedList};
 use markdown_it::plugins::html::html_block::HtmlBlock;
 
+use super::Claim;
 use super::attributes::{Attrs, Fault, name_length, skip_blanks, tokenize};
 
 /// A byte range of the parsed text.
@@ -49,13 +53,27 @@ pub(super) struct Leaf {
 }
 
 /// A `:name[label]` inline directive; its label span and faults are
-/// relative to its start.
+/// relative to its start. A directive an inline rule claimed has its
+/// `claimed` label instead, and an empty label span at its end.
 #[derive(Debug)]
 pub(super) struct InlineDirective {
     pub(super) name: String,
     pub(super) attrs: Attrs,
     label: Span,
     faults: Vec<Fault>,
+    pub(super) claimed: Option<String>,
+}
+
+impl InlineDirective {
+    fn claimed(claim: Claim) -> Self {
+        Self {
+            name: claim.name,
+            attrs: claim.attrs,
+            label: (claim.len, claim.len),
+            faults: Vec::new(),
+            claimed: Some(claim.label),
+        }
+    }
 }
 
 /// Where a directive's delimiters sit in the parsed text.
@@ -90,6 +108,11 @@ pub(super) fn signature(doc: &Document, id: NodeId) -> Option<(&str, &Attrs)> {
     }
     node.cast::<InlineDirective>()
         .map(|directive| (directive.name.as_str(), &directive.attrs))
+}
+
+/// The label an inline rule claimed for node `id`.
+pub(super) fn claimed(doc: &Document, id: NodeId) -> Option<&str> {
+    doc.node(id).cast::<InlineDirective>()?.claimed.as_deref()
 }
 
 /// The delimiters of node `id`, if it is a directive.
@@ -135,9 +158,34 @@ pub(super) fn add(md: &mut MarkdownIt) {
     add_inline(md);
 }
 
-/// Adds inline directives alone, as directive labels are read.
+/// Adds inline directives alone, as directive labels are read. They run
+/// before the inline rules [`add_rules`] adds.
 pub(super) fn add_inline(md: &mut MarkdownIt) {
-    md.inline.add_rule::<DirectiveInline>();
+    md.inline.add_rule::<DirectiveInline>().before_all();
+}
+
+/// Adds `rules`, in order, after the inline directives: the text each claims
+/// parses into an inline directive.
+pub(super) fn add_rules(md: &mut MarkdownIt, rules: &[Arc<dyn super::InlineRule>]) {
+    if rules.is_empty() {
+        return;
+    }
+    rules
+        .iter()
+        .enumerate()
+        .fold(PluginSpec::new("satz-inline-rules"), |spec, (i, rule)| {
+            let rule = Arc::clone(rule);
+            spec.inline_leaf::<InlineDirective>(i.to_string())
+                .marker(rule.trigger())
+                .parse(move |cx| {
+                    let claim = rule.claim(cx.remaining())?;
+                    (claim.len > 0 && cx.advance_bytes(claim.len))
+                        .then(|| InlineDirective::claimed(claim))
+                })
+                .render_html(|_, _| {})
+                .finish()
+        })
+        .install(md);
 }
 
 /// The faults of a parsed document: the block faults and those of inline
@@ -617,6 +665,7 @@ impl InlineRule for DirectiveInline {
             attrs,
             label: (start, close),
             faults,
+            claimed: None,
         });
         for child in children {
             state.document.push_child(node, child);

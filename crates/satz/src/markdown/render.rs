@@ -2,7 +2,7 @@
 //! plain Markdown, and unwraps named directives into their content.
 
 use std::fmt::Write as _;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use markdown_it::MarkdownIt;
 use markdown_it::document::{Document as Syntax, NodeId};
@@ -12,14 +12,15 @@ use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 use super::attributes::{Attrs, Fault};
 use super::directive::{self, Delimiters, Span};
-use super::document::{MARKDOWN, count_lines, line_prefix, line_start, lossy};
+use super::document::{count_lines, line_prefix, line_start, lossy};
+use super::parse::Parsers;
 use super::write::{self, unprefix};
 use super::{Document, Item, Problem, RenderFormat};
 use crate::tree::{Origin, Position};
 
 /// The inline parser directive labels are read with: paragraphs of inline
 /// Markdown, no other blocks.
-static LABELS: LazyLock<MarkdownIt> = LazyLock::new(|| {
+pub(super) fn labels() -> MarkdownIt {
     let mut parser = MarkdownIt::empty();
     inline::newline::add(&mut parser);
     inline::escape::add(&mut parser);
@@ -33,7 +34,7 @@ static LABELS: LazyLock<MarkdownIt> = LazyLock::new(|| {
     block::paragraph::add(&mut parser);
     directive::add_inline(&mut parser);
     parser
-});
+}
 
 /// How deep directive labels may nest.
 const MAX_DEPTH: usize = 100;
@@ -43,23 +44,28 @@ const MAX_DEPTH: usize = 100;
 /// problems come back in source order.
 pub(super) fn render(doc: &mut Document, format: RenderFormat) -> Vec<Problem> {
     let mut problems = Vec::new();
-    render_items(&mut doc.children, format, &mut problems);
+    render_items(&doc.parsers, &mut doc.children, format, &mut problems);
     problems.sort_by_key(|problem| problem.origin.position().map(|p| (p.line(), p.column())));
     problems
 }
 
-fn render_items(items: &mut [Item], format: RenderFormat, problems: &mut Vec<Problem>) {
+fn render_items(
+    parsers: &Parsers,
+    items: &mut [Item],
+    format: RenderFormat,
+    problems: &mut Vec<Problem>,
+) {
     for i in 0..items.len() {
         match items[i].kind.as_str() {
             "code" | "html" | "rule" => continue,
             "directive" | "paragraph" | "heading" | "table" | "text" => {}
             _ => {
-                render_items(&mut items[i].children, format, problems);
+                render_items(parsers, &mut items[i].children, format, problems);
                 continue;
             }
         }
         let text = markdown(&items[i]);
-        match render_text(&text, format, 0) {
+        match render_text(parsers, &text, format, 0) {
             Ok(out) if out != text => replace_text(items, i, out),
             Ok(_) => {}
             Err(faults) => {
@@ -75,6 +81,7 @@ pub(super) fn unwrap(doc: &mut Document, name: &str) -> Document {
     let mut inners = Vec::new();
     unwrap_items(&mut doc.children, name, &mut inners);
     let mut head = Document::new(doc.file.clone());
+    head.parsers = Arc::clone(&doc.parsers);
     let text = inners.join("\n");
     if !text.is_empty() {
         let origin = Origin::named(
@@ -187,17 +194,22 @@ fn offset_of(text: &[u8], line: u32, column: u32) -> usize {
 
 /// `input` with its directives rendered in `format`; other Markdown keeps
 /// its bytes. Faults are at offsets of `input`.
-fn render_text(input: &str, format: RenderFormat, depth: usize) -> Result<String, Vec<Fault>> {
+fn render_text(
+    parsers: &Parsers,
+    input: &str,
+    format: RenderFormat,
+    depth: usize,
+) -> Result<String, Vec<Fault>> {
     if depth > MAX_DEPTH {
         return Err(vec![Fault::new(0, "directive nesting exceeds 100 levels")]);
     }
-    if !input.contains(':') {
+    if !input.contains(|c| c == ':' || parsers.triggers.contains(&c)) {
         return Ok(input.to_owned());
     }
     let parser = if depth > 0 {
-        &*LABELS
+        &parsers.labels
     } else {
-        &MARKDOWN.parser
+        &parsers.body
     };
     let syntax = parser.parse(input);
     let faults = directive::faults(&syntax);
@@ -206,7 +218,7 @@ fn render_text(input: &str, format: RenderFormat, depth: usize) -> Result<String
     }
     let source = syntax.source();
     let mut edits = Vec::new();
-    collect(&syntax, syntax.root(), format, depth, &mut edits)?;
+    collect(parsers, &syntax, syntax.root(), format, depth, &mut edits)?;
     let mut out = String::with_capacity(source.len());
     let mut at = 0;
     for ((start, stop), text) in edits {
@@ -223,6 +235,7 @@ fn render_text(input: &str, format: RenderFormat, depth: usize) -> Result<String
 }
 
 fn collect(
+    parsers: &Parsers,
     syntax: &Syntax,
     id: NodeId,
     format: RenderFormat,
@@ -232,16 +245,20 @@ fn collect(
     for &child in syntax.children(id) {
         let found = directive::delimiters(syntax, child).zip(directive::signature(syntax, child));
         let Some((d, (name, attrs))) = found else {
-            collect(syntax, child, format, depth, edits)?;
+            collect(parsers, syntax, child, format, depth, edits)?;
             continue;
         };
         if d.fence < 3 {
-            edits.push(relabel(syntax.source(), name, attrs, &d, format, depth)?);
+            let label = directive::claimed(syntax, child).unwrap_or_else(|| {
+                let (start, end) = d.label();
+                syntax.source().get(start..end).unwrap_or_default()
+            });
+            edits.push(relabel(parsers, label, name, attrs, &d, format, depth)?);
             continue;
         }
         let (open, close) = delimiters(name, attrs, &d, format, false);
         edits.push((d.open, open));
-        collect(syntax, child, format, depth, edits)?;
+        collect(parsers, syntax, child, format, depth, edits)?;
         if let Some(span) = d.close {
             edits.push((span, close));
         }
@@ -249,9 +266,10 @@ fn collect(
     Ok(())
 }
 
-/// The edit that renders a leaf or inline directive with its label.
+/// The edit that renders a leaf or inline directive with its `label`.
 fn relabel(
-    source: &str,
+    parsers: &Parsers,
+    label: &str,
     name: &str,
     attrs: &Attrs,
     d: &Delimiters,
@@ -259,8 +277,7 @@ fn relabel(
     depth: usize,
 ) -> Result<(Span, String), Vec<Fault>> {
     let (start, end) = d.label();
-    let label = source.get(start..end).unwrap_or_default();
-    let content = render_text(label, format, depth + 1).map_err(|faults| {
+    let content = render_text(parsers, label, format, depth + 1).map_err(|faults| {
         faults
             .into_iter()
             .map(|f| f.shifted(start))

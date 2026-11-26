@@ -2066,7 +2066,7 @@ $ henia query --path a16.md '(_) @n' --json
 ]
 ```
 
-satz prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only, and inline directives carry their `label`.
 
 ```scrut
 $ satz query --path a16.md '(_) @n' --json
@@ -2113,6 +2113,7 @@ $ satz query --path a16.md '(_) @n' --json
       "attrs": {
         "inline": "true",
         "k": "v",
+        "label": "label :nested[deep]",
         "name": "inl"
       },
       "lines": [
@@ -2128,6 +2129,7 @@ $ satz query --path a16.md '(_) @n' --json
       "address": "a16.md",
       "attrs": {
         "inline": "true",
+        "label": "deep",
         "name": "nested"
       },
       "lines": [
@@ -2144,6 +2146,7 @@ $ satz query --path a16.md '(_) @n' --json
       "attrs": {
         "a": "1",
         "inline": "true",
+        "label": "x",
         "name": "ok"
       },
       "lines": [
@@ -5732,7 +5735,7 @@ $ henia query --path a37.md '(_) @n' --json
 ]
 ```
 
-satz prints the same rows; the file node carries `path` only.
+satz prints the same rows; the file node carries `path` only, and inline directives carry their `label`.
 
 ```scrut
 $ satz query --path a37.md '(_) @n' --json
@@ -5763,6 +5766,7 @@ $ satz query --path a37.md '(_) @n' --json
       "address": "a37.md",
       "attrs": {
         "inline": "true",
+        "label": "y",
         "name": "x"
       },
       "lines": [
@@ -5778,6 +5782,7 @@ $ satz query --path a37.md '(_) @n' --json
       "address": "a37.md",
       "attrs": {
         "inline": "true",
+        "label": "",
         "name": "z"
       },
       "lines": [
@@ -5794,6 +5799,7 @@ $ satz query --path a37.md '(_) @n' --json
       "attrs": {
         "class": "c",
         "inline": "true",
+        "label": "a",
         "name": "w"
       },
       "lines": [
@@ -6885,7 +6891,7 @@ $ henia query --path a46.md '(_) @n' --json
 ]
 ```
 
-satz prints the same rows; the file node carries `path` only, and links carry `url` without henia's link resolution attributes (AD-25).
+satz prints the same rows; the file node carries `path` only, inline directives carry their `label`, and links carry `url` without henia's link resolution attributes (AD-25).
 
 ```scrut
 $ satz query --path a46.md '(_) @n' --json
@@ -6930,6 +6936,7 @@ $ satz query --path a46.md '(_) @n' --json
       "address": "a46.md",
       "attrs": {
         "inline": "true",
+        "label": "x",
         "name": "d"
       },
       "lines": [

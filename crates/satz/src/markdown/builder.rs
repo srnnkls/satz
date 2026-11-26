@@ -37,6 +37,9 @@ pub(super) struct Element {
     pub(super) children: Vec<Element>,
     /// A directive's delimiters.
     pub(super) delimiters: Option<Delimiters>,
+    /// An inline directive's label: the text between its brackets, or the
+    /// label an inline rule claimed.
+    pub(super) label: Option<String>,
     /// A link's or image's whole source, from its opening bracket.
     pub(super) link: Option<Span>,
     /// A block's span as markdown-it reads it, from its first marker.
@@ -596,6 +599,10 @@ impl<'a> Builder<'a> {
                 e.span(span);
             }
             e.delimiters = directive::delimiters(self.doc, id);
+            e.label = directive.claimed.clone().or_else(|| {
+                e.delimiters
+                    .map(|delimiters| self.text(delimiters.label()).to_owned())
+            });
             self.child_inlines(&mut e, id);
             parent.children.push(e);
             return;
