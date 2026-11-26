@@ -18,11 +18,21 @@ builds on it to lint agent skills.
 ## Install
 
 ```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/srnnkls/satz/releases/latest/download/satz-cli-installer.sh | sh
+```
+
+The installer fetches the `satz` binary for macOS or Linux from the latest
+[release](https://github.com/srnnkls/satz/releases). From source:
+
+```sh
 cargo install --locked --git https://github.com/srnnkls/satz satz-cli
 ```
 
-This installs the `satz` command. The library is the `satz` crate in the same
-repository.
+The library is the `satz` crate in the same repository; depend on it by git tag:
+
+```toml
+satz = { git = "https://github.com/srnnkls/satz", tag = "v0.1.0" }
+```
 
 ## Quickstart
 
@@ -80,4 +90,4 @@ mise run parity        # satz against the pinned henia, as scrut tests
 
 ## Status
 
-The engine is moving out of henia; nothing is released yet.
+0.1.0 is the first release. henia's Rust rewrite builds on it.
