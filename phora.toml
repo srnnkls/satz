@@ -43,3 +43,12 @@ take = [
 
 [targets.loqui.hooks]
 on_change = ["mise run loqui merge-lints"]
+
+[sources.mq]
+git = "https://github.com/harehare/mq.git"
+allow_symlinks = true
+
+[targets.resources]
+path = "resources"
+layout = "by-source"
+sources = ["mq"]
