@@ -1,12 +1,17 @@
 [sources.loqui-common]
 repo = "srnnkls/loqui"
 root = "blueprints/common"
-rev = "5298b394357d9897a5db465314472a933f0d5d07"
+rev = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 
 [sources.loqui-rust]
 repo = "srnnkls/loqui"
 root = "blueprints/rust"
-rev = "5298b394357d9897a5db465314472a933f0d5d07"
+rev = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+
+[sources.loqui-rust-release]
+repo = "srnnkls/loqui"
+root = "blueprints/rust-release"
+rev = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 
 [targets.loqui]
 path = "."
@@ -25,6 +30,15 @@ take = [
   { "lints.toml" = ".loqui/rust/lints.toml" },
   { "rustfmt.toml" = "rustfmt.toml" },
   { "clippy.toml" = "clippy.toml" },
+]
+
+[targets.loqui.sources.loqui-rust-release]
+collapse = false
+take = [
+  { "hk.pkl" = ".loqui/hk/rust-release.pkl" },
+  { "cliff.toml" = ".loqui/rust-release/cliff.toml" },
+  { "release-plz.yml" = ".github/workflows/release-plz.yml" },
+  { "mise.toml" = ".config/mise/conf.d/loqui-rust-release.toml" },
 ]
 
 [targets.loqui.hooks]

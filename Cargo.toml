@@ -44,3 +44,7 @@ dbg_macro = "warn"
 mem_forget = "warn"
 unwrap_used = "warn"
 expect_used = "warn"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

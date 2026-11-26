@@ -3,15 +3,23 @@ version = 1
 [[sources]]
 name = "loqui-common"
 git = "https://github.com/srnnkls/loqui.git"
-resolved = "5298b394357d9897a5db465314472a933f0d5d07"
-commit = "5298b394357d9897a5db465314472a933f0d5d07"
-digest = "blake3:1ed7efe658bcd245e41a47178dd7e1eabd0824ca25938c431daa4cd767baa665"
+resolved = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+commit = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+digest = "blake3:04f9206503fed787ae4d7b69e67f098b60ce3a1b48546de71802a390c2b6ee17"
 config_digest = "blake3:da381a6ace31d38983d6e867d9bd225365a9691a29d499bf5b1c64e52ee5163e"
 
 [[sources]]
 name = "loqui-rust"
 git = "https://github.com/srnnkls/loqui.git"
-resolved = "5298b394357d9897a5db465314472a933f0d5d07"
-commit = "5298b394357d9897a5db465314472a933f0d5d07"
+resolved = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+commit = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 digest = "blake3:c6b6612e0c4ecd8bba826b55ea6d58f4143ee37f7d6ce2190089bc41ce593d94"
 config_digest = "blake3:4aaf1aea62c3a5a7239b313e37e15db26fbe62a2c1a3e0fe5cf4fe8e65b53599"
+
+[[sources]]
+name = "loqui-rust-release"
+git = "https://github.com/srnnkls/loqui.git"
+resolved = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+commit = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
+digest = "blake3:a9a2b8329946e780b42f8244f9565c0bbc03a33db426ba93fb13fa1bca66f724"
+config_digest = "blake3:30d7d2aeb7f8c7b458244b7ea896c26962e4c7cc9798dc169a7baf8b6e3e08ca"

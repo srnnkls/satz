@@ -7,7 +7,7 @@ cargo-deny = "0.22.0"
 CARGO_BUILD_WARNINGS = "deny"
 
 [tasks.loqui]
-file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=5298b394357d9897a5db465314472a933f0d5d07"
+file = "git::https://github.com/srnnkls/loqui.git//bin/loqui?ref=2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 
 [tasks.model]
 description = "Fetch the pinned Model2Vec model for the parity tests"

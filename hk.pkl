@@ -1,6 +1,7 @@
 amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
 import ".loqui/hk/gate.pkl"
 import ".loqui/hk/rust.pkl"
+import ".loqui/hk/rust-release.pkl" as rustRelease
 
 local cargoDeny = new Step {
   glob = List("**/Cargo.toml", "Cargo.lock", "deny.toml")
@@ -8,7 +9,7 @@ local cargoDeny = new Step {
 }
 
 hooks = gate.standard(
-  new Mapping<String, Step> { ...rust.fast },
+  new Mapping<String, Step> { ...rust.fast; ...rustRelease.fast },
   new Mapping<String, Step> { ...rust.heavy; ["cargo-deny"] = cargoDeny },
-  new Mapping<String, Step> { ...rust.fixers }
+  new Mapping<String, Step> { ...rust.fixers; ...rustRelease.fixers }
 )
