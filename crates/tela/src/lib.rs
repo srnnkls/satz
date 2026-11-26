@@ -1,8 +1,9 @@
 //! Structural query and lint over text.
 //!
-//! A [`Frontend`] parses a file format into a [`Tree`] of nodes, a [`Query`]
-//! written in tq matches that tree, and a lint [`Plan`] turns the rows of its
-//! rules' queries into [`Diagnostic`]s. The core reads only trees; Markdown
+//! A [`Frontend`] parses a file format into a [`Tree`] of nodes, a
+//! [`query::Query`] written in tq matches that tree, and a lint
+//! [`lint::Plan`] turns the rows of its rules' queries into
+//! [`lint::Diagnostic`]s. The core reads only trees; Markdown
 //! ([`markdown::Markdown`]) and plain text ([`plain::Plain`]) are its
 //! frontends. The tq language and the lint module format are documented in
 //! the repository's `docs/query.md` and `docs/lint.md`.
@@ -22,8 +23,9 @@
 //!
 //! # Queries
 //!
-//! [`Query::read`] reads tq against a [`Schema`]; [`Query::run`] matches it
-//! over a shared tree in a [`query::Environment`], which holds everything the
+//! [`query::Query::read`] reads tq against a [`query::Schema`];
+//! [`query::Query::run`] matches it over a shared tree in a
+//! [`query::Environment`], which holds everything the
 //! caller knows in advance: `$param` values, data tables, the semantic model
 //! and the clock. A query never writes to the tree, so one tree serves
 //! concurrent runs.
@@ -35,8 +37,8 @@
 //!
 //! use tela::markdown::Markdown;
 //! use tela::plain::Plain;
-//! use tela::query::{Capture, Environment, Hit};
-//! use tela::{Frontends, Query, Schema};
+//! use tela::Frontends;
+//! use tela::query::{Capture, Environment, Hit, Query, Schema};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let frontends = Frontends::new(vec![Arc::new(Markdown::new()), Arc::new(Plain)], Some("plain"))?;
@@ -50,7 +52,7 @@
 //!     .filter_map(|row| match row.captures.get("h")? {
 //!         Capture::Nodes(hits) => match hits.first()? {
 //!             Hit::Node(id) => tree.get(*id)?.node().origin.line(),
-//!             Hit::Row(_) => None,
+//!             _ => None,
 //!         },
 //!         _ => None,
 //!     })
@@ -60,10 +62,10 @@
 //! # }
 //! ```
 //!
-//! [`Schema::core`] knows the node types every frontend produces.
-//! [`Schema::new`] extends it through a [`query::SchemaSpec`]: further node
-//! types and keys, and a unit, the node type that the relations `reaches`,
-//! `inbound`, `to` and `from` work over. The links between units are
+//! [`query::Schema::core`] knows the node types every frontend produces.
+//! [`query::Schema::new`] extends it through a [`query::SchemaSpec`]:
+//! further node types and keys, and a unit, the node type that the relations
+//! `reaches`, `inbound`, `to` and `from` work over. The links between units are
 //! precomputed: [`query::Environment::targets`] maps a link target to its
 //! unit node, and [`query::Environment::typed`] gives attributes typed
 //! values.
@@ -73,25 +75,25 @@
 //! A [`lint::Config`] holds module [`lint::Layer`]s in load order, the
 //! program's [`lint::Spec`] (its schema, the extra module frontmatter keys it
 //! declares, and the labels of its rule sources) and the user's
-//! [`lint::Settings`], the `[lint]` table of `tela.toml`. [`Plan::compile`]
-//! loads tela's std modules, then the layers and the inline rules, and
-//! applies the settings. [`Plan::run`] runs every rule, or a
-//! [`lint::Selection`], over one [`lint::Corpus`]: the files grafted under one
-//! root, and the environment.
+//! [`lint::Settings`]: inline rules, per-rule overrides and disabled rules.
+//! [`lint::Plan::compile`] loads tela's std modules, then the layers and the
+//! inline rules, and applies the settings. [`lint::Plan::run`] runs every
+//! rule, or a [`lint::Selection`], over one [`lint::Corpus`]: the files
+//! grafted under one root, and the environment.
 //!
 //! ````
 //! use std::sync::Arc;
 //! use std::time::SystemTime;
 //!
-//! use tela::lint::{Config, Corpus, Layer, ModuleFile, Selection, Settings, Spec};
+//! use tela::Frontend;
+//! use tela::lint::{Config, Corpus, Layer, ModuleFile, Plan, Selection, Settings, Spec};
 //! use tela::markdown::Markdown;
 //! use tela::query::Environment;
-//! use tela::{Frontend, Plan};
 //!
 //! const MODULE: &str = r#"
 //! ## no-make
 //!
-//! ```hq
+//! ```tq
 //! (rule no-make
 //!   :message "use the mise task, not {@c.text}"
 //!   (code :inline true :matches /^make\b/) @c)
@@ -101,7 +103,7 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let layer = Layer::from_files(
 //!     Some("team".to_owned()),
-//!     vec![ModuleFile { path: "build.md".to_owned(), text: MODULE.to_owned() }],
+//!     vec![ModuleFile::new("build.md", MODULE)],
 //! )?;
 //! let config = Config::new(vec![layer], Spec::default(), Settings::default())?;
 //! let plan = Plan::compile(&config)?;
@@ -118,12 +120,13 @@
 //! ````
 //!
 //! A module is named by its path without `.md`, under its layer's package:
-//! the rule above comes from `team/build`. [`lint::Layer::read_dir`] builds
-//! a layer from a directory. Module frontmatter keys the [`lint::Spec`]
-//! declares come back raw per rule in [`Plan::rules`]; any other unknown key
-//! fails the compile. [`Plan::examples`] lists every rule's Matches and
-//! Passes examples, and [`Plan::run_example`] runs one against a corpus the
-//! caller builds from its text.
+//! the rule above comes from `team/build`. Its rules live in `tq` code
+//! blocks; `hq` blocks read the same. [`lint::Layer::read_dir`] builds a
+//! layer from a directory. Module frontmatter keys the [`lint::Spec`]
+//! declares come back raw per rule in [`lint::Plan::rules`]; any other
+//! unknown key fails the compile. [`lint::Plan::examples`] lists every
+//! rule's Matches and Passes examples, and [`lint::Plan::run_example`] runs
+//! one against a corpus the caller builds from its text.
 //!
 //! # Semantic similarity
 //!
@@ -137,9 +140,9 @@
 //! use std::time::SystemTime;
 //!
 //! use tela::markdown::Markdown;
-//! use tela::query::Environment;
+//! use tela::Frontend;
+//! use tela::query::{Environment, Query, Schema};
 //! use tela::similarity::{Embed, EmbedError};
-//! use tela::{Frontend, Query, Schema};
 //!
 //! /// Embeds a text as its counts of vowels.
 //! #[derive(Debug)]
@@ -179,6 +182,4 @@ pub mod similarity;
 pub mod tree;
 
 pub use frontend::{Frontend, Frontends};
-pub use lint::{Diagnostic, Plan, RuleId, Severity};
-pub use query::{Query, Schema};
 pub use tree::{Node, NodeId, NodeRef, Origin, Position, Tree};

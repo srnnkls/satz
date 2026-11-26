@@ -6,7 +6,7 @@ use super::check::Mention;
 use super::lex::{Kind, Token};
 use super::pattern::{Comparison, Operand, Pattern};
 use super::read::{Reader, suggest, unexpected};
-use super::{Error, ErrorKind, Query};
+use super::{Query, ReadError, ReadErrorKind};
 
 #[derive(Debug, Clone)]
 pub(super) struct Group {
@@ -90,7 +90,7 @@ pub(super) struct Aggregate {
 }
 
 impl Reader<'_> {
-    pub(super) fn group(&mut self, open: &Token) -> Result<Group, Error> {
+    pub(super) fn group(&mut self, open: &Token) -> Result<Group, ReadError> {
         let mut group = Group {
             keys: Vec::new(),
             aggregates: Vec::new(),
@@ -100,16 +100,16 @@ impl Reader<'_> {
             match token.kind {
                 Kind::Close => return Ok(group),
                 Kind::Eof => {
-                    return Err(
-                        Error::syntax(open.pos, "unclosed (group").with_hint("add the matching )")
-                    );
+                    return Err(ReadError::syntax(open.pos, "unclosed (group")
+                        .with_hint("add the matching )"));
                 }
                 Kind::Var | Kind::Capture => {
                     if !group.aggregates.is_empty() {
-                        return Err(
-                            Error::syntax(token.pos, "group keys precede the aggregates")
-                                .with_hint("e.g. (group ?l (count @c @n))"),
-                        );
+                        return Err(ReadError::syntax(
+                            token.pos,
+                            "group keys precede the aggregates",
+                        )
+                        .with_hint("e.g. (group ?l (count @c @n))"));
                     }
                     let input = if token.kind == Kind::Var {
                         Input::Var(token.text)
@@ -132,12 +132,12 @@ impl Reader<'_> {
         }
     }
 
-    fn aggregate(&mut self) -> Result<Aggregate, Error> {
+    fn aggregate(&mut self) -> Result<Aggregate, ReadError> {
         let op_token = self.next();
         let op = Op::from_name(&op_token.text)
             .filter(|_| op_token.kind == Kind::Symbol)
             .ok_or_else(|| {
-                Error::syntax(
+                ReadError::syntax(
                     op_token.pos,
                     format!("unknown aggregate {:?}", op_token.text),
                 )
@@ -161,7 +161,7 @@ impl Reader<'_> {
         })
     }
 
-    fn aggregate_key(&mut self, op: Op) -> Result<Option<String>, Error> {
+    fn aggregate_key(&mut self, op: Op) -> Result<Option<String>, ReadError> {
         if self.peek().kind != Kind::Key {
             return Ok(None);
         }
@@ -175,21 +175,21 @@ impl Reader<'_> {
         } else {
             format!("({name} ...) takes :{}", keys.join(" :"))
         };
-        Err(Error::syntax(
+        Err(ReadError::syntax(
             token.pos,
             format!("({name} ...) has no key :{}", token.text),
         )
         .with_hint(hint))
     }
 
-    fn aggregate_input(&mut self, op: Op, key: Option<&str>) -> Result<Input, Error> {
+    fn aggregate_input(&mut self, op: Op, key: Option<&str>) -> Result<Input, ReadError> {
         let operand = self.next();
         let name = op.name();
         match operand.kind {
             Kind::Capture => {
                 let c = &operand.text;
                 match op.keys().first() {
-                    Some(example) if key.is_none() => Err(Error::syntax(
+                    Some(example) if key.is_none() => Err(ReadError::syntax(
                         operand.pos,
                         format!("({name} @{c}) needs a :key"),
                     )
@@ -200,14 +200,14 @@ impl Reader<'_> {
             Kind::Var => {
                 let v = &operand.text;
                 if op == Op::Sum {
-                    return Err(Error::syntax(
+                    return Err(ReadError::syntax(
                         operand.pos,
                         format!("(sum ...) takes a @capture, not ?{v}"),
                     )
                     .with_hint("equal values of distinct nodes would collapse; sum a key over a capture, as in (sum :words @p @n)"));
                 }
                 if let Some(key) = key {
-                    return Err(Error::syntax(
+                    return Err(ReadError::syntax(
                         operand.pos,
                         format!("({name} :{key} ...) reads the key from a @capture, not ?{v}"),
                     )
@@ -222,7 +222,7 @@ impl Reader<'_> {
         }
     }
 
-    fn aggregate_out(&mut self, op: Op) -> Result<Option<String>, Error> {
+    fn aggregate_out(&mut self, op: Op) -> Result<Option<String>, ReadError> {
         let next = self.peek().clone();
         match next.kind {
             Kind::Capture => {
@@ -233,7 +233,7 @@ impl Reader<'_> {
             }
             Kind::Var => {
                 let (name, t) = (op.name(), &next.text);
-                Err(Error::syntax(
+                Err(ReadError::syntax(
                     next.pos,
                     format!(
                         "the result of ({name} ...) is output, so it is a capture: @{t}, not ?{t}"
@@ -245,7 +245,7 @@ impl Reader<'_> {
         }
     }
 
-    fn aggregate_filter(&mut self, op: Op) -> Result<Option<(Comparison, Operand)>, Error> {
+    fn aggregate_filter(&mut self, op: Op) -> Result<Option<(Comparison, Operand)>, ReadError> {
         if self.peek().kind != Kind::Open {
             return Ok(None);
         }
@@ -257,7 +257,7 @@ impl Reader<'_> {
             form.text.as_str()
         };
         let comparison = Comparison::from_symbol(symbol).ok_or_else(|| {
-            Error::syntax(
+            ReadError::syntax(
                 form.pos,
                 format!(
                     "an aggregate filters with >, >=, < or <=, not {:?}",
@@ -299,7 +299,7 @@ impl Group {
 
     /// Checks that keys and aggregates read what the patterns bind and
     /// capture, and marks the captures that hold values.
-    pub(super) fn check(&mut self, query: &Query, mentions: &[Mention]) -> Result<(), Error> {
+    pub(super) fn check(&mut self, query: &Query, mentions: &[Mention]) -> Result<(), ReadError> {
         let context = Context {
             query,
             mentions,
@@ -316,7 +316,7 @@ impl Group {
                 Input::Capture(name, value) => {
                     *value = context.captured(name, key.pos, "so it cannot key it")?;
                     if repeated.contains(name.as_str()) {
-                        return Err(Error::syntax(
+                        return Err(ReadError::syntax(
                             key.pos,
                             format!("@{name} is captured under * or +, so it cannot key a group"),
                         )
@@ -334,7 +334,7 @@ impl Group {
                     let reads = format!("so ({op} ...) cannot read it");
                     *value = context.captured(name, aggregate.pos, &reads)?;
                     if *value && keyed {
-                        return Err(Error::syntax(
+                        return Err(ReadError::syntax(
                             aggregate.pos,
                             format!(
                                 "@{name} captures a value, so ({op} ...) cannot read a key from it"
@@ -360,7 +360,7 @@ struct Context<'a> {
 
 impl Context<'_> {
     /// Fails unless a pattern binds `var`, which `role` reads.
-    fn bound(&self, var: &str, pos: usize, role: &str) -> Result<(), Error> {
+    fn bound(&self, var: &str, pos: usize, role: &str) -> Result<(), ReadError> {
         let binds = self
             .mentions
             .iter()
@@ -368,8 +368,8 @@ impl Context<'_> {
         if binds {
             return Ok(());
         }
-        Err(Error::new(
-            ErrorKind::Unbound,
+        Err(ReadError::new(
+            ReadErrorKind::Unbound,
             pos,
             format!("?{var} {role} but no pattern binds it"),
         )
@@ -380,19 +380,19 @@ impl Context<'_> {
 
     /// Whether the pattern capture `name` holds values; fails when no pattern
     /// captures it or an aggregate outputs it, which `reads` explains.
-    fn captured(&self, name: &str, pos: usize, reads: &str) -> Result<bool, Error> {
+    fn captured(&self, name: &str, pos: usize, reads: &str) -> Result<bool, ReadError> {
         let captures = &self.query.captures;
         if !captures.iter().any(|c| c == name) {
             let candidates: Vec<&str> = captures.iter().map(String::as_str).collect();
-            return Err(Error::new(
-                ErrorKind::Unbound,
+            return Err(ReadError::new(
+                ReadErrorKind::Unbound,
                 pos,
                 format!("@{name} is not captured by a pattern of the query"),
             )
             .with_hint(suggest(name, &candidates)));
         }
         if self.outputs.contains(name) {
-            return Err(Error::syntax(
+            return Err(ReadError::syntax(
                 pos,
                 format!("@{name} is an aggregate of the group, {reads}"),
             )

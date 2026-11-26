@@ -10,7 +10,7 @@ A heading repeated in one document makes its anchors ambiguous.
 `(repeated-heading @first @repeat ?text)` matches each repeat with the first
 heading of its text in the same file.
 
-```hq
+```tq
 (define (repeated-heading @first @repeat ?text)
   (file :node ?f (heading :norm ?text :text /\S/ :node ?n) @first)
   (file :node ?f (heading :norm ?text :node (after ?n)) @repeat)

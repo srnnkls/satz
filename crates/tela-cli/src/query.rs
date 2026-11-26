@@ -9,11 +9,10 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use serde_json::{Map, Number, Value as Json};
-use tela::NodeRef;
 use tela::lint::Corpus;
-use tela::query::{self, Capture, Environment, Hit, Row, Value};
+use tela::query::{Capture, Environment, Hit, Query, Row, Schema, Value};
 use tela::similarity::Model2Vec;
-use tela::{Query, Schema, Tree};
+use tela::{NodeRef, Tree};
 
 use crate::config::Source;
 use crate::failure::Failure;
@@ -56,13 +55,13 @@ pub(crate) struct Args {
 
 pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<Status, Failure> {
     let query = Query::read(&args.pattern, &Schema::core(), args.sort.as_deref())
-        .map_err(|error| explain(&args.pattern, &error))?;
+        .map_err(|error| Failure::explain(&args.pattern, &error))?;
     let trees = input::read(&args.paths, &input::frontends()?)?;
     let mut environment = Environment::new(SystemTime::now());
     if query.is_semantic() {
         let dir = match &args.model {
             Some(dir) => dir.clone(),
-            None => config.settings()?.semantic.model_path.ok_or_else(|| {
+            None => config.load()?.model.ok_or_else(|| {
                 Failure::new(
                     "(similar …) needs a semantic model; pass --model or set [lint.semantic] model_path",
                 )
@@ -100,29 +99,13 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
     Ok(Status::Clean)
 }
 
-/// The reader's error with the query line it points into and a caret under
-/// the offset.
-fn explain(source: &str, error: &query::Error) -> Failure {
-    let offset = error.offset().min(source.len());
-    let before = source.get(..offset).unwrap_or(source);
-    let start = before.rfind('\n').map_or(0, |newline| newline + 1);
-    let line = source[start..].lines().next().unwrap_or_default();
-    let column = before[start..].chars().count();
-    let mut message = format!("{}\n  {line}\n  {}^", error.message(), " ".repeat(column));
-    if let Some(hint) = error.hint() {
-        message.push_str("\n  ");
-        message.push_str(hint);
-    }
-    Failure::new(message)
-}
-
 struct Printer<'a> {
     query: &'a Query,
     tree: &'a Tree,
 }
 
 impl Printer<'_> {
-    /// Rows as henia's `--json` writes them: each capture by name, the
+    /// Rows as JSON: each capture by name, the
     /// unnamed one as `match`, and each variable as `?name`.
     fn json(&self, rows: &[Row]) -> Json {
         let records = rows
@@ -155,6 +138,7 @@ impl Printer<'_> {
             },
             Capture::Value(value) => value_json(value),
             Capture::Values(values) => Json::Array(values.iter().map(value_json).collect()),
+            _ => Json::Null,
         }
     }
 
@@ -184,7 +168,7 @@ impl Printer<'_> {
         Json::Object(record)
     }
 
-    /// Rows as henia's listing writes them: the shown variables, then a line
+    /// Rows as a listing: the shown variables, then a line
     /// per capture, and a blank line between rows of several lines.
     fn listing(&self, out: &mut impl Write, rows: &[Row], whole: bool) -> std::io::Result<()> {
         let shown = self.query.shown_vars();
@@ -207,7 +191,6 @@ impl Printer<'_> {
                     format!("@{name}  ")
                 };
                 match row.captures.get(name) {
-                    None => writeln!(out, "{label}-")?,
                     Some(Capture::Value(value)) => writeln!(out, "{label}{value}")?,
                     Some(Capture::Values(values)) => {
                         let values: Vec<String> = values.iter().map(Value::to_string).collect();
@@ -230,6 +213,7 @@ impl Printer<'_> {
                             }
                         }
                     }
+                    _ => writeln!(out, "{label}-")?,
                 }
             }
         }
@@ -240,6 +224,7 @@ impl Printer<'_> {
         match hit {
             Hit::Node(id) => self.tree.get(*id).map(Described::node),
             Hit::Row(attrs) => Some(Described::row(attrs)),
+            _ => None,
         }
     }
 }

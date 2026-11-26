@@ -12,6 +12,7 @@ pub struct Position {
 
 /// Why a [`Position`] was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum PositionError {
     /// The span ends before it starts.
     #[error("span {start}..{end} ends before it starts")]
@@ -142,10 +143,20 @@ impl Origin {
         Self { file, position }
     }
 
-    /// The file, as the caller named it; cheap to clone onto sibling nodes.
+    /// The file, as the caller named it.
     #[must_use]
-    pub fn file(&self) -> &Arc<str> {
+    pub fn file(&self) -> &str {
         &self.file
+    }
+
+    /// An origin in the same file at `position`; the file name is shared,
+    /// not copied.
+    #[must_use]
+    pub fn with_position(&self, position: Option<Position>) -> Self {
+        Self {
+            file: Arc::clone(&self.file),
+            position,
+        }
     }
 
     /// The position in the source, absent for a whole-file node.

@@ -5,7 +5,7 @@ use std::time::UNIX_EPOCH;
 use crate::frontend::Frontend;
 use crate::lint::*;
 use crate::markdown::Markdown;
-use crate::query::{self, CORPUS, Environment, ErrorKind, Table, Value};
+use crate::query::{self, CORPUS, Environment, ReadErrorKind, Table, Value};
 use crate::similarity::{Embed, EmbedError};
 
 fn id(id: &str) -> RuleId {
@@ -85,7 +85,9 @@ fn std_examples_pass() {
     let plan = plan(Settings::default());
     assert!(!plan.examples().is_empty());
     for example in plan.examples() {
-        let outcome = plan.run_example(example, &corpus(&[("example.md", &example.text)]));
+        let outcome = plan
+            .run_example(example, &corpus(&[("example.md", &example.text)]))
+            .unwrap();
         assert_eq!(
             outcome,
             Outcome::Pass,
@@ -267,10 +269,7 @@ fn semantic(enabled: bool) -> Settings {
             ..RuleConfig::default()
         },
     );
-    settings.semantic = Semantic {
-        enabled,
-        model_path: Some("soup".into()),
-    };
+    settings.semantic = enabled;
     settings
 }
 
@@ -451,7 +450,7 @@ fn lexical_similarity_scores_edits_and_containment() {
         assert!((value - case.want).abs() < 1e-10, "{name}: {value}");
         assert_eq!(d.rule().as_str(), "similar-content");
         assert_eq!(d.origin().to_string(), "b.md:2:1", "{name}");
-        assert_eq!(d.related()[0].file().as_ref(), "a.md");
+        assert_eq!(d.related()[0].file(), "a.md");
         assert!(
             d.message()
                 .contains(&format!("shared phrases: {}", shared[0])),
@@ -597,7 +596,7 @@ fn invalid_inline_rules_fail_to_compile() {
             source.kind(),
             source.offset()
         ),
-        ("tela.toml", "bad", ErrorKind::UnknownType, 1)
+        ("inline", "bad", ReadErrorKind::UnknownType, 1)
     );
     for (rule, message) in [
         (inline("Bad", "(heading) @h", "m"), "lowercase letters"),
@@ -613,7 +612,7 @@ fn invalid_inline_rules_fail_to_compile() {
         CompileError::DuplicateRule {
             rule: id("duplicate-heading"),
             first: "std/structure".to_owned(),
-            second: "tela.toml".to_owned(),
+            second: "inline".to_owned(),
         }
     );
     let mut limit = inline("limit", "(file :lines (> $limit)) @f", "m");
@@ -697,8 +696,11 @@ fn params_no_module_sets_come_from_the_environment() {
     let only = Selection::Only(BTreeSet::from([id("limit")]));
     let mut corpus = corpus(&[("a.md", "Text.\n")]);
     let error = plan.run(&corpus, &only).unwrap_err();
-    assert_eq!(error.rule.as_str(), "limit");
-    assert!(matches!(error.source, query::RunError::MissingParam(ref p) if p == "limit"));
+    assert!(matches!(
+        error,
+        RunError::Query { ref rule, source: query::RunError::MissingParam(ref p) }
+            if rule.as_str() == "limit" && p == "limit"
+    ));
     corpus
         .environment
         .params
@@ -817,7 +819,8 @@ fn table_rules_hold_through_negation() {
     assert_eq!(examples.len(), 4);
     for example in examples {
         assert_eq!(
-            plan.run_example(example, &corpus(&[("scope.md", &example.text)])),
+            plan.run_example(example, &corpus(&[("scope.md", &example.text)]))
+                .unwrap(),
             Outcome::Pass,
             "{} line {}",
             example.rule,
@@ -850,11 +853,8 @@ fn failing_examples_report_their_count() {
         .unwrap();
     let repeated = corpus(&[("example.md", "# A\n\n# A\n")]);
     assert_eq!(
-        plan.run_example(example, &repeated),
-        Outcome::Fail {
-            found: 1,
-            problem: None
-        }
+        plan.run_example(example, &repeated).unwrap(),
+        Outcome::Fail { found: 1 }
     );
 }
 
@@ -957,7 +957,7 @@ fn read_errors_point_into_their_module() {
     };
     assert_eq!(
         (module.as_str(), line, source.kind(), source.offset()),
-        ("team/broken", 9, ErrorKind::UnknownType, 27)
+        ("team/broken", 9, ReadErrorKind::UnknownType, 27)
     );
 }
 

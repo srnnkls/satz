@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use super::check::Mention;
 use super::lex::is_name;
 use super::read::suggest;
-use super::{Error, ErrorKind, Query};
+use super::{Query, ReadError, ReadErrorKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SortKey {
@@ -29,7 +29,7 @@ fn valid_name(name: &str) -> bool {
 
 impl SortKey {
     /// Parses `text`, reporting errors at `pos`.
-    pub(super) fn parse(text: &str, pos: usize) -> Result<Self, Error> {
+    pub(super) fn parse(text: &str, pos: usize) -> Result<Self, ReadError> {
         let (descending, rest) = match text.strip_prefix('-') {
             Some(rest) => (true, rest),
             None => (false, text),
@@ -54,7 +54,7 @@ impl SortKey {
             None
         };
         let by = by.ok_or_else(|| {
-            Error::syntax(
+            ReadError::syntax(
                 pos,
                 format!("--sort {text} is neither ?var, @value nor @capture.key"),
             )
@@ -77,10 +77,11 @@ impl SortKey {
 }
 
 impl Query {
-    pub(super) fn check_sorts(&self, mentions: &[Mention]) -> Result<(), Error> {
+    pub(super) fn check_sorts(&self, mentions: &[Mention]) -> Result<(), ReadError> {
         for sort in &self.sorts {
             let text = &sort.text;
-            let unbound = |message: String| Error::new(ErrorKind::Unbound, sort.pos, message);
+            let unbound =
+                |message: String| ReadError::new(ReadErrorKind::Unbound, sort.pos, message);
             let (capture, key) = match &sort.by {
                 SortBy::Capture(capture) => (capture, None),
                 SortBy::Key(capture, key) => (capture, Some(key)),
@@ -99,14 +100,14 @@ impl Query {
             let value = self.values.contains(capture)
                 || self.group.as_ref().is_some_and(|g| g.is_output(capture));
             if value && key.is_some() {
-                return Err(Error::syntax(
+                return Err(ReadError::syntax(
                     sort.pos,
                     format!("--sort {text} reads a key, but @{capture} captures a value"),
                 )
                 .with_hint(format!("sort by the value itself: --sort @{capture}")));
             }
             if !value && key.is_none() {
-                return Err(Error::syntax(
+                return Err(ReadError::syntax(
                     sort.pos,
                     format!("--sort {text} names @{capture}, which captures nodes"),
                 )
@@ -118,12 +119,17 @@ impl Query {
         Ok(())
     }
 
-    fn check_sort_var(&self, sort: &SortKey, var: &str, mentions: &[Mention]) -> Result<(), Error> {
+    fn check_sort_var(
+        &self,
+        sort: &SortKey,
+        var: &str,
+        mentions: &[Mention],
+    ) -> Result<(), ReadError> {
         let text = &sort.text;
         let bound = mentions
             .iter()
             .any(|m| m.name == var && m.binds() && !m.negated);
-        let unbound = |message: String| Error::new(ErrorKind::Unbound, sort.pos, message);
+        let unbound = |message: String| ReadError::new(ReadErrorKind::Unbound, sort.pos, message);
         let Some(group) = &self.group else {
             if bound {
                 return Ok(());
@@ -137,7 +143,7 @@ impl Query {
         };
         if group.is_output(var) {
             let minus = if sort.descending { "-" } else { "" };
-            return Err(Error::syntax(
+            return Err(ReadError::syntax(
                 sort.pos,
                 format!("--sort {text} names ?{var}, but aggregates are captures"),
             )

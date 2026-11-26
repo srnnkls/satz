@@ -1,9 +1,10 @@
 //! Text similarity: word shingles with Jaccard and containment, and cosine
 //! over embeddings from a caller's model.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, btree_set};
 use std::error::Error;
 use std::fmt;
+use std::iter::FusedIterator;
 
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
@@ -29,11 +30,25 @@ pub trait Embed: Send + Sync + fmt::Debug {
 #[derive(Debug, thiserror::Error)]
 #[error("model {model:?} failed to embed a text")]
 pub struct EmbedError {
-    /// The model.
-    pub model: String,
-    /// The model's own error.
+    model: String,
     #[source]
-    pub source: Box<dyn Error + Send + Sync>,
+    source: Box<dyn Error + Send + Sync>,
+}
+
+impl EmbedError {
+    /// The failure of `model`, caused by the model's own `source` error.
+    pub fn new(model: impl Into<String>, source: impl Into<Box<dyn Error + Send + Sync>>) -> Self {
+        Self {
+            model: model.into(),
+            source: source.into(),
+        }
+    }
+
+    /// The model.
+    #[must_use]
+    pub fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 /// The lower-cased words of `text`: runs of letters, numbers and marks.
@@ -91,8 +106,9 @@ impl Shingles {
     }
 
     /// The shingles in sorted order.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &str> {
-        self.0.iter().map(String::as_str)
+    #[must_use]
+    pub fn iter(&self) -> ShingleIter<'_> {
+        ShingleIter(self.0.iter())
     }
 
     fn shared_count(&self, other: &Self) -> usize {
@@ -129,6 +145,41 @@ impl Shingles {
     }
 }
 
+impl<'a> IntoIterator for &'a Shingles {
+    type Item = &'a str;
+    type IntoIter = ShingleIter<'a>;
+
+    fn into_iter(self) -> ShingleIter<'a> {
+        self.iter()
+    }
+}
+
+/// The shingles of a [`Shingles`] in sorted order.
+#[derive(Debug, Clone)]
+pub struct ShingleIter<'a>(btree_set::Iter<'a, String>);
+
+impl<'a> Iterator for ShingleIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        self.0.next().map(String::as_str)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for ShingleIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(String::as_str)
+    }
+}
+
+impl ExactSizeIterator for ShingleIter<'_> {}
+
+impl FusedIterator for ShingleIter<'_> {}
+
 fn ratio(numerator: usize, denominator: usize) -> f64 {
     let as_f64 = |n: usize| f64::from(u32::try_from(n).unwrap_or(u32::MAX));
     as_f64(numerator) / as_f64(denominator)
@@ -140,6 +191,7 @@ pub struct Embedding(Vec<f64>);
 
 /// Why a raw vector does not normalize.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EmbeddingError {
     /// A component is NaN or infinite.
     #[error("embedding has a non-finite component")]

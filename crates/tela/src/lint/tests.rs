@@ -42,17 +42,13 @@ fn two_layers_of_one_package_are_rejected() {
 }
 
 #[test]
-fn semantic_rules_need_a_model() {
-    let settings = Settings {
-        semantic: Semantic {
-            enabled: true,
-            model_path: None,
-        },
-        ..Settings::default()
-    };
+fn errors_outweigh_warnings() {
+    assert!(Severity::Warning < Severity::Error);
     assert_eq!(
-        Config::new(vec![], Spec::default(), settings),
-        Err(ConfigError::MissingModel)
+        [Severity::Warning, Severity::Error, Severity::Warning]
+            .into_iter()
+            .max(),
+        Some(Severity::Error)
     );
 }
 

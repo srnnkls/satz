@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::load::{self, Clause, Group, Loader};
 use super::{CompileError, Config, Example, Plan, RuleConfig, RuleId, RuleMeta};
-use crate::query::{Table, Value, suggest};
+use crate::query::{ParamKind, Table, TableKind, Value, suggest};
 
 /// A rule's clauses with its effective params and data.
 #[derive(Debug, Clone)]
@@ -69,7 +69,7 @@ impl Plan {
             compiled,
             disabled: settings.disable.clone(),
             disable_key: settings.disable_key.clone(),
-            semantic: settings.semantic.enabled,
+            semantic: settings.semantic,
         })
     }
 }
@@ -123,9 +123,11 @@ impl Group {
     /// Checks that every param a clause compares as a number holds one.
     fn check_numbers(&self) -> Result<(), CompileError> {
         for clause in &self.clauses {
-            for (name, &numeric) in &clause.rule.params() {
-                if numeric && matches!(self.params.get(name), Some(Value::Text(_))) {
-                    return Err(self.param_type(name, "a number"));
+            for (name, kind) in clause.rule.params() {
+                if kind == ParamKind::Number
+                    && matches!(self.params.get(&name), Some(Value::Text(_)))
+                {
+                    return Err(self.param_type(&name, kind));
                 }
             }
         }
@@ -182,10 +184,10 @@ impl Group {
                     (Some(Value::Number(_)), Value::Text(text)) => text
                         .parse()
                         .map(Value::Number)
-                        .map_err(|_| self.param_type(name, "a number"))?,
+                        .map_err(|_| self.param_type(name, ParamKind::Number))?,
                     (Some(Value::Text(_)), Value::Text(text)) => Value::Text(text.clone()),
                     (Some(Value::Text(_)), Value::Number(_)) => {
-                        return Err(self.param_type(name, "text"));
+                        return Err(self.param_type(name, ParamKind::Text));
                     }
                 };
                 Ok((name.clone(), typed))
@@ -195,12 +197,8 @@ impl Group {
             .iter()
             .map(|(name, table)| match self.data.get(name) {
                 None => Err(self.unknown(name)),
-                Some(declared) if shape(declared) != shape(table) => {
-                    Err(CompileError::TableShape {
-                        rule: self.id.clone(),
-                        table: name.clone(),
-                        expected: shape(declared).to_owned(),
-                    })
+                Some(declared) if declared.kind() != table.kind() => {
+                    Err(self.table_shape(name, declared.kind()))
                 }
                 Some(_) => Ok((name.clone(), table.clone())),
             })
@@ -212,15 +210,11 @@ impl Group {
     /// as a param, a param set as a table, or neither.
     fn unknown(&self, key: &str) -> CompileError {
         if let Some(table) = self.data.get(key) {
-            return CompileError::TableShape {
-                rule: self.id.clone(),
-                table: key.to_owned(),
-                expected: shape(table).to_owned(),
-            };
+            return self.table_shape(key, table.kind());
         }
         match self.params.get(key) {
-            Some(Value::Number(_)) => self.param_type(key, "a number"),
-            Some(Value::Text(_)) => self.param_type(key, "text"),
+            Some(Value::Number(_)) => self.param_type(key, ParamKind::Number),
+            Some(Value::Text(_)) => self.param_type(key, ParamKind::Text),
             None => {
                 let known: Vec<&str> = self
                     .params
@@ -237,18 +231,19 @@ impl Group {
         }
     }
 
-    fn param_type(&self, param: &str, expected: &str) -> CompileError {
+    fn param_type(&self, param: &str, expected: ParamKind) -> CompileError {
         CompileError::ParamType {
             rule: self.id.clone(),
             param: param.to_owned(),
-            expected: expected.to_owned(),
+            expected,
         }
     }
-}
 
-fn shape(table: &Table) -> &'static str {
-    match table {
-        Table::Map(_) => "a table",
-        Table::List(_) => "a list",
+    fn table_shape(&self, table: &str, expected: TableKind) -> CompileError {
+        CompileError::TableShape {
+            rule: self.id.clone(),
+            table: table.to_owned(),
+            expected,
+        }
     }
 }

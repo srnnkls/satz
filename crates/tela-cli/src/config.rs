@@ -1,4 +1,5 @@
-//! `tela.toml`: the `[lint]` table, read into [`Settings`].
+//! `tela.toml`: the `[lint]` table, read into [`Settings`] and the
+//! semantic model's directory.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -6,13 +7,21 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use tela::lint::{InlineRule, RuleConfig, Semantic, Settings};
+use tela::lint::{InlineRule, RuleConfig, RuleId, Settings, Severity};
 use tela::query::{Table, Value};
-use tela::{RuleId, Severity};
 
 use crate::failure::Failure;
 
-const DEFAULT: &str = "tela.toml";
+pub(crate) const DEFAULT: &str = "tela.toml";
+
+/// What `tela.toml` configures.
+#[derive(Debug, Default)]
+pub(crate) struct Config {
+    /// The lint settings.
+    pub(crate) settings: Settings,
+    /// `[lint.semantic] model_path`.
+    pub(crate) model: Option<PathBuf>,
+}
 
 /// Where the config comes from: the file `--config` names, which must exist,
 /// or `tela.toml` in the current directory, if there is one.
@@ -26,13 +35,13 @@ impl Source {
         Self { named }
     }
 
-    /// The lint settings the config file sets, or the defaults without one.
-    pub(crate) fn settings(&self) -> Result<Settings, Failure> {
+    /// What the config file sets, or the defaults without one.
+    pub(crate) fn load(&self) -> Result<Config, Failure> {
         let path = self.named.as_deref().unwrap_or(Path::new(DEFAULT));
         let text = match fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) if error.kind() == io::ErrorKind::NotFound && self.named.is_none() => {
-                return Ok(Settings::default());
+                return Ok(Config::default());
             }
             Err(error) => return Err(Failure::from(error).context(path.display())),
         };
@@ -79,36 +88,35 @@ struct SemanticTable {
     model_path: Option<PathBuf>,
 }
 
-/// The settings `text` configures: TOML scalars become params, booleans as
-/// `true` or `false` text, and tables and arrays become data tables.
-fn parse(text: &str) -> Result<Settings, Failure> {
+/// What `text` configures: TOML scalars become params, booleans as `true`
+/// or `false` text, and tables and arrays become data tables.
+fn parse(text: &str) -> Result<Config, Failure> {
     let file: File =
         toml::from_str(text).map_err(|error| Failure::new(error.to_string().trim_end()))?;
     let lint = file.lint;
-    let defaults = Settings::default();
-    let mut config = BTreeMap::new();
+    let mut settings = Settings::default();
     for (id, table) in lint.config {
         let rule = rule_id(&id)?;
         let overrides = rule_config(table).map_err(|f| f.context(format!("[lint.config.{id}]")))?;
-        config.insert(rule, overrides);
+        settings.config.insert(rule, overrides);
     }
-    Ok(Settings {
-        rules: lint
-            .rules
-            .into_iter()
-            .map(Rule::into_inline)
-            .collect::<Result<_, _>>()?,
-        config,
-        disable: lint
-            .disable
-            .iter()
-            .map(|id| rule_id(id))
-            .collect::<Result<_, _>>()?,
-        disable_key: lint.disable_key.unwrap_or(defaults.disable_key),
-        semantic: Semantic {
-            enabled: lint.semantic.enabled,
-            model_path: lint.semantic.model_path,
-        },
+    settings.rules = lint
+        .rules
+        .into_iter()
+        .map(Rule::into_inline)
+        .collect::<Result<_, _>>()?;
+    settings.disable = lint
+        .disable
+        .iter()
+        .map(|id| rule_id(id))
+        .collect::<Result<_, _>>()?;
+    if let Some(key) = lint.disable_key {
+        settings.disable_key = key;
+    }
+    settings.semantic = lint.semantic.enabled;
+    Ok(Config {
+        settings,
+        model: lint.semantic.model_path,
     })
 }
 
@@ -129,16 +137,13 @@ impl Rule {
                 })?;
                 data.insert(key, table);
             }
-            Ok(InlineRule {
-                id: rule_id(&self.id)?,
-                query: self.query,
-                message: self.message,
-                severity: self.severity.as_deref().map(severity).transpose()?,
-                at: self.at,
-                related: self.related,
-                params,
-                data,
-            })
+            let mut rule = InlineRule::new(rule_id(&self.id)?, self.query, self.message);
+            rule.severity = self.severity.as_deref().map(severity).transpose()?;
+            rule.at = self.at;
+            rule.related = self.related;
+            rule.params = params;
+            rule.data = data;
+            Ok(rule)
         };
         rule().map_err(|failure| failure.context(context))
     }
@@ -181,10 +186,7 @@ fn scalar(value: &toml::Value) -> Option<Value> {
     }
 }
 
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "query numbers are f64, as henia's are"
-)]
+#[expect(clippy::cast_precision_loss, reason = "query numbers are f64")]
 fn integer(n: i64) -> f64 {
     n as f64
 }
@@ -238,7 +240,8 @@ mod tests {
             alpha = "a"
             "#,
         )
-        .unwrap();
+        .unwrap()
+        .settings;
         assert_eq!(settings.disable_key, "henia.lint.disable");
         assert!(settings.disable.contains("duplicate-heading"));
         let similar = &settings.config["similar-content"];
@@ -256,9 +259,10 @@ mod tests {
 
     #[test]
     fn defaults_without_lint_table() {
-        let settings = parse("").unwrap();
-        assert_eq!(settings.disable_key, "tela.lint.disable");
-        assert!(!settings.semantic.enabled);
+        let config = parse("").unwrap();
+        assert_eq!(config.settings.disable_key, "tela.lint.disable");
+        assert!(!config.settings.semantic);
+        assert_eq!(config.model, None);
     }
 
     #[test]
@@ -283,7 +287,8 @@ mod tests {
             data = { words = ["a", "b"] }
             "#,
         )
-        .unwrap();
+        .unwrap()
+        .settings;
         let rule = &settings.rules[0];
         assert_eq!(rule.params["min"], Value::Number(3.0));
         assert_eq!(

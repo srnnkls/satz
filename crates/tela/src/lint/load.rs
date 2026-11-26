@@ -5,10 +5,11 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use super::header::{Fault, Header};
+use super::module::{Module, Rule};
 use super::{CompileError, Expect, InlineRule, Layer, RuleId, Spec};
 use crate::frontend::Frontend;
 use crate::markdown::{Frontmatter, Markdown};
-use crate::query::{self, Defines, Module, Schema, Table, Value};
+use crate::query::{Defines, ReadError, Schema, Table, Value};
 use crate::tree::{NodeRef, Tree};
 
 /// tela's std modules by name within the std prefix.
@@ -41,7 +42,7 @@ impl Method {
 /// One `(rule …)` form and the method its score follows.
 #[derive(Debug, Clone)]
 pub(super) struct Clause {
-    pub(super) rule: query::Rule,
+    pub(super) rule: Rule,
     pub(super) method: Option<Method>,
 }
 
@@ -172,7 +173,7 @@ impl<'a> Loader<'a> {
             },
             Fault::Invalid(message) => malformed(message),
         })?;
-        let (source, blocks) = hq_source(&tree);
+        let (source, blocks) = query_source(&tree);
         let mut samples = samples(&tree);
         let schema = self.schema;
         let module = Module::read(&source, schema, |import| self.defines(import))
@@ -227,7 +228,7 @@ pub(super) fn inline(rule: &InlineRule, spec: &Spec) -> Result<Group, CompileErr
     }
     head.push('\n');
     let source = format!("{head}{}\n)", rule.query);
-    let failed = |error: query::Error| {
+    let failed = |error: ReadError| {
         let offset = error
             .offset()
             .checked_sub(head.len())
@@ -240,8 +241,8 @@ pub(super) fn inline(rule: &InlineRule, spec: &Spec) -> Result<Group, CompileErr
     };
     let no_imports = |name: &str| Err(format!("an inline rule imports no module, not {name:?}"));
     let module = Module::read(&source, &spec.schema, no_imports).map_err(failed)?;
-    let [read] = <[query::Rule; 1]>::try_from(module.rules).map_err(|_| {
-        failed(query::Error::syntax(
+    let [read] = <[Rule; 1]>::try_from(module.rules).map_err(|_| {
+        failed(ReadError::syntax(
             head.len() + rule.query.len(),
             "the query closes its rule early",
         ))
@@ -279,21 +280,22 @@ fn quote(text: &str) -> String {
     quoted
 }
 
-/// An `hq` block's place: its offset in the joined source and its first
+/// A query block's place: its offset in the joined source and its first
 /// line in the module file.
 struct Block {
     start: usize,
     line: u32,
 }
 
-/// The module's `hq` blocks joined into one source, with where each starts.
-fn hq_source(tree: &Tree) -> (String, Vec<Block>) {
+/// The module's `tq` blocks, and `hq` blocks as the earlier name, joined
+/// into one source, with where each starts.
+fn query_source(tree: &Tree) -> (String, Vec<Block>) {
     let mut source = String::new();
     let mut blocks = Vec::new();
     for code in tree
         .root()
         .descendants()
-        .filter(|node| fenced(*node, &["hq"]))
+        .filter(|node| fenced(*node, &["tq", "hq"]))
     {
         blocks.push(Block {
             start: source.len(),
@@ -306,7 +308,7 @@ fn hq_source(tree: &Tree) -> (String, Vec<Block>) {
 }
 
 /// A read error moved into the block holding it.
-fn located(module: &str, source: &str, blocks: &[Block], error: query::Error) -> CompileError {
+fn located(module: &str, source: &str, blocks: &[Block], error: ReadError) -> CompileError {
     let offset = error.offset().min(source.len());
     let (line, error) = match blocks.iter().rev().find(|block| block.start <= offset) {
         Some(block) => {

@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::frontend::Frontend;
+use crate::lint::module::{Module, Sigil, placeholders};
 use crate::markdown::Markdown;
 use crate::similarity::{Embed, EmbedError};
 use crate::tree::{Node, NodeRef, Origin};
@@ -329,14 +330,14 @@ fn axes() -> BTreeMap<String, Table> {
     )])
 }
 
-fn read_error(query: &str) -> Error {
+fn read_error(query: &str) -> ReadError {
     match Query::read(query, &schema(), None) {
         Ok(_) => panic!("{query}: read, want an error"),
         Err(e) => e,
     }
 }
 
-fn module_error(source: &str) -> Error {
+fn module_error(source: &str) -> ReadError {
     match Module::read(source, &schema(), |name: &str| {
         Err(format!("no module {name}"))
     }) {
@@ -345,7 +346,7 @@ fn module_error(source: &str) -> Error {
     }
 }
 
-fn mentions(error: &Error) -> String {
+fn mentions(error: &ReadError) -> String {
     format!("{} {}", error.message(), error.hint().unwrap_or_default())
 }
 
@@ -612,14 +613,14 @@ fn read_errors() {
 fn read_errors_carry_their_kind() {
     assert_eq!(
         read_error("(skill (headng) @h)").kind(),
-        ErrorKind::UnknownType
+        ReadErrorKind::UnknownType
     );
     assert_eq!(
         read_error(r#"(code :language "go")"#).kind(),
-        ErrorKind::UnknownKey
+        ReadErrorKind::UnknownKey
     );
-    assert_eq!(read_error("(skill :id ?x)").kind(), ErrorKind::Unbound);
-    assert_eq!(read_error("(skill :id 'x')").kind(), ErrorKind::Syntax);
+    assert_eq!(read_error("(skill :id ?x)").kind(), ReadErrorKind::Unbound);
+    assert_eq!(read_error("(skill :id 'x')").kind(), ReadErrorKind::Syntax);
 }
 
 #[derive(Debug)]
@@ -1407,7 +1408,10 @@ fn read_module() {
     let rule = &module.rules[0];
     assert_eq!(rule.id.as_str(), "bash-usage");
     assert_eq!(rule.severity, crate::lint::Severity::Error);
-    assert_eq!(rule.params(), BTreeMap::from([("want".to_owned(), false)]));
+    assert_eq!(
+        rule.params(),
+        BTreeMap::from([("want".to_owned(), ParamKind::Text)])
+    );
     let c = fixture();
     let mut env = c.env.clone();
     env.params = BTreeMap::from([("want".to_owned(), Value::Text("go".to_owned()))]);
@@ -1660,7 +1664,7 @@ fn table_keys() {
 #[test]
 fn core_schema_rejects_the_unit_a_caller_registers() {
     let e = Query::read("(skill :id ?s) @k", &Schema::core(), None).unwrap_err();
-    assert_eq!(e.kind(), ErrorKind::UnknownType);
+    assert_eq!(e.kind(), ReadErrorKind::UnknownType);
     let c = chained();
     let rows = c.run(r#"(skill :id "a" (reaches (skill :id ?s @s) @k))"#);
     let reached: Vec<&str> = rows.iter().map(|r| r.vars["s"].as_str()).collect();

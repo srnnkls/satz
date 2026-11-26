@@ -3,7 +3,9 @@
 //! joins tela as one more [`Frontend`].
 
 use std::fmt;
+use std::iter::FusedIterator;
 use std::path::Path;
+use std::slice;
 use std::sync::Arc;
 
 use crate::tree::Tree;
@@ -26,6 +28,7 @@ pub trait Frontend: Send + Sync + fmt::Debug {
 
 /// Why a registry was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum FrontendError {
     /// Two frontends share a name.
     #[error("frontend {0:?} is registered twice")]
@@ -117,8 +120,9 @@ impl Frontends {
     }
 
     /// The registered frontends, in registration order.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &dyn Frontend> {
-        self.frontends.iter().map(AsRef::as_ref)
+    #[must_use]
+    pub fn iter(&self) -> FrontendIter<'_> {
+        FrontendIter(self.frontends.iter())
     }
 
     /// The frontend named `name`.
@@ -143,6 +147,41 @@ impl Frontends {
             .or_else(|| self.fallback.map(|i| self.frontends[i].as_ref()))
     }
 }
+
+impl<'a> IntoIterator for &'a Frontends {
+    type Item = &'a dyn Frontend;
+    type IntoIter = FrontendIter<'a>;
+
+    fn into_iter(self) -> FrontendIter<'a> {
+        self.iter()
+    }
+}
+
+/// The frontends of a [`Frontends`] registry, in registration order.
+#[derive(Debug, Clone)]
+pub struct FrontendIter<'a>(slice::Iter<'a, Arc<dyn Frontend>>);
+
+impl<'a> Iterator for FrontendIter<'a> {
+    type Item = &'a dyn Frontend;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(AsRef::as_ref)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for FrontendIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(AsRef::as_ref)
+    }
+}
+
+impl ExactSizeIterator for FrontendIter<'_> {}
+
+impl FusedIterator for FrontendIter<'_> {}
 
 fn claims(frontend: &dyn Frontend, extension: &str) -> bool {
     frontend

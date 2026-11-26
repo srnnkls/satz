@@ -2,10 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use super::Error;
+use super::ReadError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     Eof,
     Open,
     Close,
@@ -27,10 +27,10 @@ pub(super) enum Kind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Token {
-    pub(super) kind: Kind,
-    pub(super) text: String,
-    pub(super) pos: usize,
+pub(crate) struct Token {
+    pub(crate) kind: Kind,
+    pub(crate) text: String,
+    pub(crate) pos: usize,
     pub(super) lo: f64,
     pub(super) hi: f64,
     /// For a regexp a define expands: each named group's binding, `?var`
@@ -95,7 +95,7 @@ fn number(digits: &str) -> f64 {
 }
 
 /// Splits `source` into tokens ending in [`Kind::Eof`].
-pub(super) fn lex(source: &str) -> Result<Vec<Token>, Error> {
+pub(super) fn lex(source: &str) -> Result<Vec<Token>, ReadError> {
     let src = source.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -143,7 +143,7 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, Error> {
                 let end = name_end(src, i + 1);
                 if end == i + 1 {
                     let what = if c == b'@' { "a capture name" } else { "a key" };
-                    return Err(Error::syntax(
+                    return Err(ReadError::syntax(
                         i,
                         format!("expected {what} after {:?}", char::from(c)),
                     ));
@@ -158,7 +158,7 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, Error> {
                     j += if src[j] == b'\\' { 2 } else { 1 };
                 }
                 if j >= src.len() {
-                    return Err(Error::syntax(i, "unterminated /regexp/")
+                    return Err(ReadError::syntax(i, "unterminated /regexp/")
                         .with_hint(r#"quote values that contain /, as in :path "ops/run.md""#));
                 }
                 let text = source[i + 1..j].replace(r"\/", "/");
@@ -189,7 +189,7 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, Error> {
                 } else {
                     "patterns use ( ) [ ] > . ? * + @capture :key \"string\" /regexp/"
                 };
-                return Err(Error::syntax(i, format!("unexpected {found:?}")).with_hint(hint));
+                return Err(ReadError::syntax(i, format!("unexpected {found:?}")).with_hint(hint));
             }
         }
     }
@@ -199,7 +199,7 @@ pub(super) fn lex(source: &str) -> Result<Vec<Token>, Error> {
 
 /// The string starting with the quote at `start`, and the offset after its
 /// closing quote.
-fn string(source: &str, start: usize) -> Result<(String, usize), Error> {
+fn string(source: &str, start: usize) -> Result<(String, usize), ReadError> {
     let mut text = String::new();
     let mut chars = source[start + 1..].char_indices();
     while let Some((at, c)) = chars.next() {
@@ -214,7 +214,7 @@ fn string(source: &str, start: usize) -> Result<(String, usize), Error> {
             c => text.push(c),
         }
     }
-    Err(Error::syntax(start, "unterminated string"))
+    Err(ReadError::syntax(start, "unterminated string"))
 }
 
 /// Lexes the integer, float or range at `start`, returning the offset after

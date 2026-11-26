@@ -2,7 +2,7 @@
 //! that runs over one corpus and returns tela's own findings.
 //!
 //! A module is a Markdown file: its frontmatter sets `params` and `data`
-//! for its rules, its `hq` code blocks hold `(rule …)`, `(define …)` and
+//! for its rules, its `tq` code blocks hold `(rule …)`, `(define …)` and
 //! `(import …)` forms, and `md` code blocks under a rule's `### Matches` or
 //! `### Passes` heading are the rule's examples. tela's std modules are
 //! `std/duplicates`, `std/similarity`, `std/structure` and `std/links`.
@@ -10,6 +10,7 @@
 mod compile;
 mod header;
 mod load;
+pub(crate) mod module;
 mod run;
 
 use std::borrow::Borrow;
@@ -20,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use self::compile::Compiled;
-use crate::query::{self, CORPUS, Environment, Schema, Table, Value};
+use crate::query::{self, CORPUS, Environment, ParamKind, Schema, Table, TableKind, Value};
 use crate::tree::{Node, Origin, Tree, TreeError};
 
 /// A rule id: non-empty, without whitespace, such as `duplicate-heading`.
@@ -79,13 +80,13 @@ impl Borrow<str> for RuleId {
 }
 
 /// How a finding counts: errors always fail lint, warnings only when the
-/// caller is strict.
+/// caller is strict. Severities order by weight, a warning below an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
-    /// Always fails.
-    Error,
     /// Fails only when strict.
     Warning,
+    /// Always fails.
+    Error,
 }
 
 /// A severity name other than `error` or `warning`.
@@ -116,6 +117,7 @@ impl fmt::Display for Severity {
 
 /// The similarity behind a finding, with what its method reports.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Score {
     /// Word-shingle Jaccard, with the shared phrases.
     Jaccard {
@@ -235,11 +237,23 @@ impl Diagnostic {
 
 /// A module file of a layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ModuleFile {
     /// The path within the layer, which names the module.
     pub path: String,
     /// The Markdown source.
     pub text: String,
+}
+
+impl ModuleFile {
+    /// The module at `path` within its layer, with Markdown source `text`.
+    #[must_use]
+    pub fn new(path: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            text: text.into(),
+        }
+    }
 }
 
 /// A set of rule modules, optionally named as a package.
@@ -251,6 +265,7 @@ pub struct Layer {
 
 /// Why a layer could not be built.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LayerError {
     /// Two files share a path.
     #[error("module file {0:?} appears twice")]
@@ -285,7 +300,8 @@ impl Layer {
     /// # Errors
     /// Returns [`LayerError::Read`] when the directory or a file cannot be
     /// read.
-    pub fn read_dir(package: Option<String>, dir: &Path) -> Result<Self, LayerError> {
+    pub fn read_dir(package: Option<String>, dir: impl AsRef<Path>) -> Result<Self, LayerError> {
+        let dir = dir.as_ref();
         let mut files = Vec::new();
         collect_markdown(dir, dir, &mut files)?;
         files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -321,10 +337,10 @@ fn collect_markdown(
         } else if path.extension().is_some_and(|ext| ext == "md") {
             let text = std::fs::read_to_string(&path).map_err(|e| failed(&path, e))?;
             let relative = path.strip_prefix(root).unwrap_or(&path);
-            files.push(ModuleFile {
-                path: relative.to_string_lossy().replace('\\', "/"),
+            files.push(ModuleFile::new(
+                relative.to_string_lossy().replace('\\', "/"),
                 text,
-            });
+            ));
         }
     }
     Ok(())
@@ -332,6 +348,7 @@ fn collect_markdown(
 
 /// A rule declared in config rather than in a module.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct InlineRule {
     /// The rule id.
     pub id: RuleId,
@@ -351,8 +368,27 @@ pub struct InlineRule {
     pub data: BTreeMap<String, Table>,
 }
 
+impl InlineRule {
+    /// The rule `id` reporting each row of `query` with `message`, a
+    /// warning at its first capture.
+    #[must_use]
+    pub fn new(id: RuleId, query: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            id,
+            query: query.into(),
+            message: message.into(),
+            severity: None,
+            at: None,
+            related: None,
+            params: BTreeMap::new(),
+            data: BTreeMap::new(),
+        }
+    }
+}
+
 /// Per-rule overrides from config.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct RuleConfig {
     /// A replacement severity.
     pub severity: Option<Severity>,
@@ -362,17 +398,9 @@ pub struct RuleConfig {
     pub data: BTreeMap<String, Table>,
 }
 
-/// The semantic model options of the `[lint.semantic]` table.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Semantic {
-    /// Whether semantic rules run.
-    pub enabled: bool,
-    /// The `Model2Vec` directory the caller loads into the environment.
-    pub model_path: Option<PathBuf>,
-}
-
 /// Names the caller gives tela's sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Labels {
     /// The source name of inline rules.
     pub inline: String,
@@ -383,7 +411,7 @@ pub struct Labels {
 impl Default for Labels {
     fn default() -> Self {
         Self {
-            inline: "tela.toml".to_owned(),
+            inline: "inline".to_owned(),
             std: "std".to_owned(),
         }
     }
@@ -392,6 +420,7 @@ impl Default for Labels {
 /// What the calling program declares: the schema its trees follow, its
 /// extra module frontmatter keys and its labels.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Spec {
     /// The schema rule queries are read against.
     pub schema: Schema,
@@ -401,8 +430,9 @@ pub struct Spec {
     pub labels: Labels,
 }
 
-/// What a user configures: the `[lint]` table.
+/// What a user configures: rules, overrides and what to disable.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Settings {
     /// Inline rules.
     pub rules: Vec<InlineRule>,
@@ -412,8 +442,9 @@ pub struct Settings {
     pub disable: BTreeSet<RuleId>,
     /// The frontmatter key a file disables rules with.
     pub disable_key: String,
-    /// Semantic model options.
-    pub semantic: Semantic,
+    /// Whether rules comparing texts under a semantic model run; the
+    /// caller loads the model into [`Environment::embed`].
+    pub semantic: bool,
 }
 
 impl Default for Settings {
@@ -423,13 +454,14 @@ impl Default for Settings {
             config: BTreeMap::new(),
             disable: BTreeSet::new(),
             disable_key: "tela.lint.disable".to_owned(),
-            semantic: Semantic::default(),
+            semantic: false,
         }
     }
 }
 
 /// Why a configuration was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// Two layers carry one package name.
     #[error("package {0:?} appears in two layers")]
@@ -440,9 +472,6 @@ pub enum ConfigError {
     /// The per-file disable key is empty.
     #[error("disable_key is empty")]
     EmptyDisableKey,
-    /// Semantic rules are enabled without a model.
-    #[error("semantic rules are enabled but no model_path is set")]
-    MissingModel,
 }
 
 /// A validated lint configuration: layers in order, then the caller's spec
@@ -460,9 +489,7 @@ impl Config {
     /// # Errors
     /// Returns [`ConfigError::DuplicatePackage`] when two layers carry one
     /// package name, [`ConfigError::DuplicateRule`] when two inline rules share
-    /// an id, [`ConfigError::EmptyDisableKey`] for an empty disable key, and
-    /// [`ConfigError::MissingModel`] when semantic rules are enabled without a
-    /// model path.
+    /// an id, and [`ConfigError::EmptyDisableKey`] for an empty disable key.
     pub fn new(layers: Vec<Layer>, spec: Spec, settings: Settings) -> Result<Self, ConfigError> {
         let mut packages = BTreeSet::new();
         for package in layers.iter().filter_map(Layer::package) {
@@ -478,9 +505,6 @@ impl Config {
         }
         if settings.disable_key.is_empty() {
             return Err(ConfigError::EmptyDisableKey);
-        }
-        if settings.semantic.enabled && settings.semantic.model_path.is_none() {
-            return Err(ConfigError::MissingModel);
         }
         Ok(Self {
             layers,
@@ -554,15 +578,15 @@ pub struct Example {
 
 /// The result of running one example.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Outcome {
     /// The example held.
     Pass,
-    /// The example failed.
+    /// The rule reported findings on a `Passes` example, or none on a
+    /// `Matches` one.
     Fail {
         /// Findings produced.
         found: usize,
-        /// What went wrong beyond the count, if anything.
-        problem: Option<String>,
     },
 }
 
@@ -588,6 +612,7 @@ impl Selection {
 
 /// The tree and environment a plan runs over; the caller assembles both.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Corpus {
     /// The files, each a file node under the root.
     pub tree: Tree,
@@ -639,7 +664,7 @@ pub enum CompileError {
         /// The key.
         key: String,
     },
-    /// A module's `hq` blocks did not read; the error's offset is within
+    /// A module's `tq` blocks did not read; the error's offset is within
     /// the block holding it.
     #[error("module {module:?}, line {line}")]
     Read {
@@ -648,7 +673,7 @@ pub enum CompileError {
         /// The module line of the error.
         line: u32,
         /// The reader's error.
-        source: query::Error,
+        source: query::ReadError,
     },
     /// An inline rule did not read; the error's offset is within its query.
     #[error("module {module:?}, rule {rule}")]
@@ -658,7 +683,7 @@ pub enum CompileError {
         /// The rule.
         rule: RuleId,
         /// The reader's error.
-        source: query::Error,
+        source: query::ReadError,
     },
     /// A rule reports a `:score` without a known `:method`.
     #[error("module {module:?}, rule {rule}: :score needs :method jaccard, containment or cosine")]
@@ -703,8 +728,8 @@ pub enum CompileError {
         rule: RuleId,
         /// The param.
         param: String,
-        /// The type, `a number` or `text`.
-        expected: String,
+        /// The type it must have.
+        expected: ParamKind,
     },
     /// A data table does not have the shape the rule gives it.
     #[error("rule {rule}: data {table} must be {expected}")]
@@ -713,20 +738,26 @@ pub enum CompileError {
         rule: RuleId,
         /// The table.
         table: String,
-        /// The shape, `a table` or `a list`.
-        expected: String,
+        /// The shape it must have.
+        expected: TableKind,
     },
 }
 
-/// A rule whose query failed while a plan ran.
+/// Why running a plan or an example failed.
 #[derive(Debug, thiserror::Error)]
-#[error("rule {rule} failed")]
-pub struct RunError {
-    /// The rule.
-    pub rule: RuleId,
-    /// The query's failure.
-    #[source]
-    pub source: query::RunError,
+#[non_exhaustive]
+pub enum RunError {
+    /// A rule's query failed.
+    #[error("rule {rule} failed")]
+    Query {
+        /// The rule.
+        rule: RuleId,
+        /// The query's failure.
+        source: query::RunError,
+    },
+    /// An example names a rule the plan lacks.
+    #[error("no rule {0}")]
+    UnknownRule(RuleId),
 }
 
 /// Rules compiled from a configuration.

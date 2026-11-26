@@ -6,12 +6,11 @@ use std::iter;
 
 use super::compile::Compiled;
 use super::load::{Clause, Method};
+use super::module::{Placeholder, Sigil, placeholders};
 use super::{
     Corpus, Diagnostic, Example, Expect, Outcome, Plan, RuleId, RunError, Score, Selection,
 };
-use crate::query::{
-    self, Capture, Environment, Hit, Placeholder, Row, Sigil, Table, Value, placeholders,
-};
+use crate::query::{self, Capture, Environment, Hit, Row, Table, Value};
 use crate::similarity::Shingles;
 use crate::tree::{NodeRef, Origin, Position, Tree};
 
@@ -29,7 +28,7 @@ impl Plan {
     /// under the disable key are dropped.
     ///
     /// # Errors
-    /// Returns [`RunError`] naming the rule whose query failed.
+    /// Returns [`RunError::Query`] naming the rule whose query failed.
     pub fn run(&self, corpus: &Corpus, rules: &Selection) -> Result<Vec<Diagnostic>, RunError> {
         let mut environment = corpus.environment.clone();
         let mut found = Vec::new();
@@ -45,7 +44,7 @@ impl Plan {
             );
             let diagnostics = self
                 .evaluate(compiled, &corpus.tree, &environment)
-                .map_err(|source| RunError {
+                .map_err(|source| RunError::Query {
                     rule: meta.id.clone(),
                     source,
                 })?;
@@ -58,36 +57,34 @@ impl Plan {
 
     /// Runs one example against a corpus the caller built from its text,
     /// with the example's params and data over the rule's.
-    #[must_use]
-    pub fn run_example(&self, example: &Example, corpus: &Corpus) -> Outcome {
+    ///
+    /// # Errors
+    /// Returns [`RunError::UnknownRule`] when the plan lacks the example's
+    /// rule, and [`RunError::Query`] when the rule's query fails.
+    pub fn run_example(&self, example: &Example, corpus: &Corpus) -> Result<Outcome, RunError> {
         let compiled = self
             .rules
             .iter()
             .position(|rule| rule.id == example.rule)
-            .and_then(|index| self.compiled.get(index));
-        let Some(compiled) = compiled else {
-            return Outcome::Fail {
-                found: 0,
-                problem: Some(format!("no rule {}", example.rule)),
-            };
-        };
+            .and_then(|index| self.compiled.get(index))
+            .ok_or_else(|| RunError::UnknownRule(example.rule.clone()))?;
         let mut params = compiled.params.clone();
         params.extend(example.params.clone());
         let mut data = compiled.data.clone();
         data.extend(example.data.clone());
         let mut environment = corpus.environment.clone();
         scope(&mut environment, &corpus.environment, &params, &data);
-        match self.evaluate(compiled, &corpus.tree, &environment) {
-            Ok(found) if found.is_empty() == (example.expect == Expect::Passes) => Outcome::Pass,
-            Ok(found) => Outcome::Fail {
-                found: found.len(),
-                problem: None,
-            },
-            Err(error) => Outcome::Fail {
-                found: 0,
-                problem: Some(error.to_string()),
-            },
-        }
+        let found = self
+            .evaluate(compiled, &corpus.tree, &environment)
+            .map_err(|source| RunError::Query {
+                rule: example.rule.clone(),
+                source,
+            })?;
+        Ok(if found.is_empty() == (example.expect == Expect::Passes) {
+            Outcome::Pass
+        } else {
+            Outcome::Fail { found: found.len() }
+        })
     }
 
     fn evaluate(
@@ -285,9 +282,7 @@ fn focus(origin: &Origin, text: &str, value: &str) -> Origin {
         line..=position.end_line().max(line),
         column,
     )
-    .ok()
-    .and_then(|at| Origin::new(origin.file().clone(), Some(at)).ok())
-    .unwrap_or_else(|| origin.clone())
+    .map_or_else(|_| origin.clone(), |at| origin.with_position(Some(at)))
 }
 
 fn count(n: usize) -> u32 {

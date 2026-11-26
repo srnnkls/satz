@@ -1,9 +1,8 @@
 //! Structural queries in tq: the schema, environment, and the query
 //! and row types its reader and matcher exchange.
 //!
-//! `:matches` and `/regexp/` values compile with the [`regex`] crate, not
-//! Go's RE2, which henia's patterns are written for. The syntax is RE2's with
-//! these differences:
+//! `:matches` and `/regexp/` values compile with the [`regex`] crate. The
+//! syntax is RE2's with these differences:
 //!
 //! - `\d`, `\w`, `\s` and `\b` are Unicode-aware: `\d` matches `٣` and `\w`
 //!   matches `é`; write `[0-9]` or `(?-u:\w)` for RE2's ASCII classes.
@@ -14,10 +13,10 @@
 //! - `\Q…\E` quoting and `\C` are rejected; RE2 accepts them.
 
 mod check;
+mod define;
 mod group;
 mod lex;
 mod matcher;
-mod module;
 mod pattern;
 mod read;
 mod rows;
@@ -29,10 +28,10 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-pub use module::{Define, Defines, Module, Placeholder, Rule, Sigil, placeholders};
-
+pub(crate) use self::define::Defines;
+pub(crate) use self::lex::{Kind, Token};
 pub(crate) use self::matcher::lines;
-pub(crate) use self::read::suggest;
+pub(crate) use self::read::{Reader, suggest, unexpected};
 
 use self::group::Group;
 use self::pattern::{Check, Operand, Pattern, Relate};
@@ -77,6 +76,7 @@ const CORE_TYPES: [(&str, &[&str]); 18] = [
 
 /// The node type relations and file-summing aggregates work over.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Unit {
     /// The unit's node type, such as `skill`.
     pub kind: String,
@@ -86,8 +86,28 @@ pub struct Unit {
     pub qualifier_key: Option<String>,
 }
 
+impl Unit {
+    /// Units of node type `kind`, named by their `id_key`.
+    #[must_use]
+    pub fn new(kind: impl Into<String>, id_key: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            id_key: id_key.into(),
+            qualifier_key: None,
+        }
+    }
+
+    /// The unit with ids qualified by `key`.
+    #[must_use]
+    pub fn with_qualifier_key(mut self, key: impl Into<String>) -> Self {
+        self.qualifier_key = Some(key.into());
+        self
+    }
+}
+
 /// A node type a caller registers.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TypeSpec {
     /// The type name.
     pub name: String,
@@ -95,8 +115,20 @@ pub struct TypeSpec {
     pub keys: Vec<String>,
 }
 
+impl TypeSpec {
+    /// The node type `name` taking `keys`.
+    #[must_use]
+    pub fn new(name: impl Into<String>, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            name: name.into(),
+            keys: keys.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// What a caller adds to the core schema.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SchemaSpec {
     /// New node types.
     pub types: Vec<TypeSpec>,
@@ -108,6 +140,7 @@ pub struct SchemaSpec {
 
 /// Why a [`SchemaSpec`] was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum SchemaError {
     /// A type is registered twice, or registers a core type.
     #[error("node type {0:?} is already registered")]
@@ -249,9 +282,59 @@ pub enum Table {
     List(Vec<String>),
 }
 
+impl Table {
+    /// Whether the table is keyed or indexed.
+    #[must_use]
+    pub fn kind(&self) -> TableKind {
+        match self {
+            Self::Map(_) => TableKind::Map,
+            Self::List(_) => TableKind::List,
+        }
+    }
+}
+
+/// The shape of a [`Table`]. It displays as the phrase `a table` or
+/// `a list`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TableKind {
+    /// Keyed rows.
+    Map,
+    /// Indexed rows.
+    List,
+}
+
+impl fmt::Display for TableKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Map => "a table",
+            Self::List => "a list",
+        })
+    }
+}
+
+/// How a query reads a `$param`. It displays as the phrase `text` or
+/// `a number`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParamKind {
+    /// As text: matched or printed.
+    Text,
+    /// As a number: compared, or a similarity threshold or limit.
+    Number,
+}
+
+impl fmt::Display for ParamKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Text => "text",
+            Self::Number => "a number",
+        })
+    }
+}
+
 /// What a query reads besides the tree: everything the caller knows in
 /// advance, and the clock.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Environment {
     /// Link targets resolved to unit nodes.
     pub targets: Targets,
@@ -285,7 +368,7 @@ impl Environment {
 /// What kind of mistake a rejected query makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum ErrorKind {
+pub enum ReadErrorKind {
     /// The source does not follow the grammar.
     Syntax,
     /// A pattern names a node type the schema lacks.
@@ -299,17 +382,17 @@ pub enum ErrorKind {
 /// A query the reader rejected, at a byte offset of its source.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message} at offset {offset}")]
-pub struct Error {
-    kind: ErrorKind,
+pub struct ReadError {
+    kind: ReadErrorKind,
     offset: usize,
     message: String,
     hint: Option<String>,
 }
 
-impl Error {
+impl ReadError {
     /// An error of `kind` at `offset`.
     #[must_use]
-    pub fn new(kind: ErrorKind, offset: usize, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: ReadErrorKind, offset: usize, message: impl Into<String>) -> Self {
         Self {
             kind,
             offset,
@@ -319,7 +402,7 @@ impl Error {
     }
 
     pub(crate) fn syntax(offset: usize, message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Syntax, offset, message)
+        Self::new(ReadErrorKind::Syntax, offset, message)
     }
 
     /// The error moved to `offset`, as when its source is a slice of a
@@ -331,14 +414,14 @@ impl Error {
 
     /// The error with a suggested fix.
     #[must_use]
-    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+    pub(crate) fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self
     }
 
     /// What kind of mistake it is.
     #[must_use]
-    pub fn kind(&self) -> ErrorKind {
+    pub fn kind(&self) -> ReadErrorKind {
         self.kind
     }
 
@@ -404,7 +487,7 @@ pub struct Query {
     numbers: BTreeSet<String>,
     semantic: bool,
     group: Option<Group>,
-    params: BTreeMap<String, bool>,
+    params: BTreeMap<String, ParamKind>,
     sorts: Vec<SortKey>,
     printed: Vec<String>,
     unit: Option<Unit>,
@@ -418,14 +501,14 @@ impl Query {
     /// RE2 as the [module docs](crate::query) list.
     ///
     /// # Errors
-    /// Returns [`Error`] when the source is not a valid query for `schema`;
+    /// Returns [`ReadError`] when the source is not a valid query for `schema`;
     /// an invalid `sort` is reported at the offset just past the source.
-    pub fn read(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Self, Error> {
-        let mut reader = read::Reader::new(source, schema)?;
+    pub fn read(source: &str, schema: &Schema, sort: Option<&str>) -> Result<Self, ReadError> {
+        let mut reader = Reader::new(source, schema)?;
         if let Some(sort) = sort {
             reader.sorts.push(SortKey::parse(sort, source.len())?);
         }
-        let mut query = reader.query(lex::Kind::Eof)?;
+        let mut query = reader.query(Kind::Eof)?;
         source.clone_into(&mut query.source);
         Ok(query)
     }
@@ -460,17 +543,24 @@ impl Query {
         self.semantic
     }
 
-    /// The `$params` the query reads, true where it compares the param as a
-    /// number.
+    /// The `$params` the query reads, and how it reads each.
     #[must_use]
-    pub fn params(&self) -> &BTreeMap<String, bool> {
+    pub fn params(&self) -> &BTreeMap<String, ParamKind> {
         &self.params
+    }
+
+    pub(crate) fn set_source(&mut self, source: &str) {
+        source.clone_into(&mut self.source);
+    }
+
+    /// Whether `capture` captures a value rather than nodes.
+    pub(crate) fn is_value(&self, capture: &str) -> bool {
+        self.values.contains(capture)
     }
 
     /// Whether a required pattern cannot match in `environment`: a
     /// similarity threshold it needs is 0 or below.
-    #[must_use]
-    pub fn impossible(&self, environment: &Environment) -> bool {
+    pub(crate) fn impossible(&self, environment: &Environment) -> bool {
         fn walk(pattern: &Pattern, environment: &Environment) -> bool {
             let disabled = pattern.attrs.iter().any(|attr| match &attr.check {
                 Check::Constrain {
@@ -510,10 +600,10 @@ impl Query {
         if self.semantic && environment.embed.is_none() {
             return Err(RunError::NoModel);
         }
-        for (name, &numeric) in &self.params {
+        for (name, &kind) in &self.params {
             match environment.params.get(name) {
                 None => return Err(RunError::MissingParam(name.clone())),
-                Some(Value::Text(value)) if numeric => {
+                Some(Value::Text(value)) if kind == ParamKind::Number => {
                     return Err(RunError::TextParam {
                         name: name.clone(),
                         value: value.clone(),
@@ -559,6 +649,7 @@ impl Environment {
 
 /// A node a capture holds: a node of the tree or a data table row.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Hit {
     /// A node of the queried tree.
     Node(NodeId),
@@ -570,6 +661,7 @@ pub enum Hit {
 /// What a capture holds in one row; captures that bound nothing are absent
 /// from the row.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Capture {
     /// The nodes of one match: one, or several under `*` or `+`.
     Nodes(Vec<Hit>),
@@ -584,6 +676,7 @@ pub enum Capture {
 
 /// One match: its captures and variable bindings.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Row {
     /// Captures by name, without the `@`.
     pub captures: BTreeMap<String, Capture>,

@@ -155,10 +155,9 @@ fn relocate(item: &Item, text: &str, fault: &Fault) -> Problem {
         None => fault.message.clone(),
     };
     Problem {
-        origin: Origin::named(
-            item.origin.file(),
-            Position::new(start..start, line..=line, column).ok(),
-        ),
+        origin: item
+            .origin
+            .with_position(Position::new(start..start, line..=line, column).ok()),
         message,
     }
 }

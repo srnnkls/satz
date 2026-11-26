@@ -3,18 +3,20 @@
 
 use std::fmt;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use serde::{Serialize, Serializer};
-use tela::lint::{Config, Corpus, Expect, Outcome, Score, Selection, Settings, Spec};
+use tela::lint::{
+    Config, Corpus, Diagnostic, Expect, Outcome, Plan, RuleId, Score, Selection, Severity, Spec,
+};
 use tela::markdown::Markdown;
 use tela::query::Environment;
 use tela::similarity::Model2Vec;
-use tela::{Diagnostic, Frontend, Origin, Plan, RuleId, Severity};
+use tela::{Frontend, Origin};
 
-use crate::config::Source;
+use crate::config::{self, Source};
 use crate::failure::Failure;
 use crate::{Status, input, json};
 
@@ -48,15 +50,19 @@ enum Format {
     Json,
 }
 
-pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<Status, Failure> {
-    let mut settings = config.settings()?;
+pub(crate) fn run(args: &Args, source: &Source, out: &mut impl Write) -> Result<Status, Failure> {
+    let config::Config {
+        mut settings,
+        model,
+    } = source.load()?;
     for id in &args.disable {
         let id = RuleId::new(id.as_str()).map_err(|error| Failure::chain(&error))?;
         settings.disable.insert(id);
     }
-    let environment = environment(&settings)?;
-    let config = Config::new(Vec::new(), Spec::default(), settings)
-        .map_err(|error| Failure::chain(&error))?;
+    let environment = environment(settings.semantic, model.as_deref())?;
+    let mut spec = Spec::default();
+    config::DEFAULT.clone_into(&mut spec.labels.inline);
+    let config = Config::new(Vec::new(), spec, settings).map_err(|error| Failure::chain(&error))?;
     let plan = Plan::compile(&config).map_err(|error| Failure::chain(&error))?;
     if let Some(Command::Test) = &args.command {
         return test(&plan, &environment, out);
@@ -95,13 +101,13 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
     })
 }
 
-/// The environment rules run in, with the semantic model when the settings
-/// enable semantic rules.
-fn environment(settings: &Settings) -> Result<Environment, Failure> {
+/// The environment rules run in, with the semantic model `dir` holds when
+/// semantic rules are enabled.
+fn environment(semantic: bool, dir: Option<&Path>) -> Result<Environment, Failure> {
     let mut environment = Environment::new(SystemTime::now());
-    if settings.semantic.enabled
-        && let Some(dir) = &settings.semantic.model_path
-    {
+    if semantic {
+        let dir =
+            dir.ok_or_else(|| Failure::new("semantic rules are enabled but no model_path is set"))?;
         let model = Model2Vec::load(dir).map_err(|error| Failure::chain(&error))?;
         environment.embed = Some(Arc::new(model));
     }
@@ -122,19 +128,25 @@ fn test(plan: &Plan, environment: &Environment, out: &mut impl Write) -> Result<
         }
         let corpus =
             Corpus::new([tree], environment.clone()).map_err(|error| Failure::chain(&error))?;
-        let Outcome::Fail { found, problem } = plan.run_example(example, &corpus) else {
-            continue;
+        let at = format!("{}:{}", example.module, example.line);
+        let found = match plan.run_example(example, &corpus) {
+            Ok(Outcome::Pass) => continue,
+            Ok(Outcome::Fail { found }) => found,
+            Ok(_) => 0,
+            Err(error) => {
+                failed += 1;
+                writeln!(out, "{at}: {}", Failure::chain(&error))?;
+                continue;
+            }
         };
         failed += 1;
-        let at = format!("{}:{}", example.module, example.line);
-        match (problem, example.expect) {
-            (Some(problem), _) => writeln!(out, "{at}: {} {problem}", example.rule)?,
-            (None, Expect::Matches) => writeln!(
+        match example.expect {
+            Expect::Matches => writeln!(
                 out,
                 "{at}: {} should report this example, but did not",
                 example.rule
             )?,
-            (None, Expect::Passes) => writeln!(
+            Expect::Passes => writeln!(
                 out,
                 "{at}: {} should pass this example, but reported {found} diagnostics",
                 example.rule
@@ -156,7 +168,7 @@ fn location(origin: &Origin) -> (u32, u32) {
         .map_or((1, 1), |at| (at.line(), at.column()))
 }
 
-/// A diagnostic as henia's `--format json` writes it, without `stage`.
+/// A diagnostic as `--format json` writes it.
 #[derive(Serialize)]
 struct Record<'a> {
     path: &'a str,
@@ -204,10 +216,10 @@ impl<'a> Record<'a> {
     fn new(diagnostic: &'a Diagnostic) -> Self {
         let origin = Location::new(diagnostic.origin());
         let (method, shared_phrases, model): (_, &[String], _) = match diagnostic.score() {
-            None => (None, &[], None),
             Some(Score::Jaccard { shared, .. }) => (Some("jaccard"), shared, None),
             Some(Score::Containment { shared, .. }) => (Some("containment"), shared, None),
             Some(Score::Cosine { model, .. }) => (Some("cosine"), &[], Some(model.as_str())),
+            _ => (None, &[], None),
         };
         Self {
             path: origin.path,

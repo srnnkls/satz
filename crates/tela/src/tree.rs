@@ -87,6 +87,7 @@ impl fmt::Display for NodeId {
 
 /// Why a tree could not be changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum TreeError {
     /// The id is out of this tree's range.
     #[error("node {0} is out of this tree's range")]

@@ -15,7 +15,7 @@ earlier paragraph above the threshold; exact copies are left to
 (shared shingles over the shorter paragraph) or `threshold` (cosine under the
 `[lint.semantic]` model) under `[lint.config.<rule>]` to turn a check on.
 
-```hq
+```tq
 (define (paragraph-at @p ?text ?norm ?position)
   (paragraph :text ?text :norm ?norm :position ?position :words (>= $min-words) :dynamic (not "true")) @p
   (not (paragraph :norm ?norm :position (before ?position) :words (>= $min-words) :dynamic (not "true"))))
@@ -23,7 +23,7 @@ earlier paragraph above the threshold; exact copies are left to
 
 ## similar-content
 
-```hq
+```tq
 (rule similar-content
   :message "paragraph has {@score.percent} word-shingle jaccard with {@original}; shared phrases: {shared}"
   :at @copy :related @original :score @score :method jaccard :shared @copy @original
@@ -65,7 +65,7 @@ Simmer the vegetable soup slowly over low heat.
 Needs `[lint.semantic]` with `enabled = true` and a `model_path`; paragraphs
 that already match lexically are left out.
 
-```hq
+```tq
 (rule semantic-content
   :message "paragraph may express similar instructions to {@original} (cosine {@score.3}); review meaning and constraints"
   :at @copy :related @original :score @score :method cosine

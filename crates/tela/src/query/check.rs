@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::group::{Group, repeated_captures};
 use super::pattern::{Check, Pattern};
-use super::{Error, ErrorKind, Query};
+use super::{Query, ReadError, ReadErrorKind};
 
 /// A variable's occurrence in a pattern.
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl Scopes {
 struct Walk {
     mentions: Vec<Mention>,
     scopes: Scopes,
-    problem: Option<Error>,
+    problem: Option<ReadError>,
 }
 
 #[derive(Clone, Copy)]
@@ -77,7 +77,7 @@ struct Place<'a> {
 }
 
 impl Walk {
-    fn fail(&mut self, error: Error) {
+    fn fail(&mut self, error: ReadError) {
         self.problem.get_or_insert(error);
     }
 
@@ -89,7 +89,7 @@ impl Walk {
                 && let Some((name, pos)) = attr.output()
             {
                 self.fail(
-                    Error::syntax(
+                    ReadError::syntax(
                         pos,
                         format!("@{name} is inside (not ...), so it never prints"),
                     )
@@ -132,7 +132,7 @@ impl Walk {
                 let other = bound(alt);
                 if other != first_bound {
                     self.fail(
-                        Error::syntax(
+                        ReadError::syntax(
                             alt.pos,
                             format!(
                                 "alternatives bind different variables: {} and {}",
@@ -156,7 +156,7 @@ impl Walk {
             && let Some(capture) = &pattern.capture
         {
             self.fail(
-                Error::syntax(
+                ReadError::syntax(
                     pattern.pos,
                     format!("@{capture} is inside (not ...), so it never prints"),
                 )
@@ -288,9 +288,9 @@ fn names(vars: &BTreeSet<String>) -> String {
 }
 
 impl Query {
-    pub(super) fn check(&mut self) -> Result<(), Error> {
+    pub(super) fn check(&mut self) -> Result<(), ReadError> {
         if self.members.iter().all(Pattern::optional) {
-            return Err(Error::syntax(
+            return Err(ReadError::syntax(
                 self.members.first().map_or(0, |p| p.pos),
                 "a query needs a pattern that is not optional",
             )
@@ -342,7 +342,7 @@ impl Query {
             .iter()
             .find(|name| self.values.contains(*name) && repeated.contains(*name))
         {
-            return Err(Error::syntax(
+            return Err(ReadError::syntax(
                 self.members[0].pos,
                 format!("@{name} captures a value under * or +, which holds one value per match"),
             )
@@ -366,7 +366,7 @@ fn check_variables(
     mentions: &[Mention],
     scopes: &Scopes,
     uses: &BTreeMap<String, usize>,
-) -> Result<(), Error> {
+) -> Result<(), ReadError> {
     let mut count: BTreeMap<&str, usize> = BTreeMap::new();
     for m in mentions {
         *count.entry(m.name.as_str()).or_default() += 1;
@@ -375,8 +375,8 @@ fn check_variables(
         let outside = uses.get(&m.name).copied().unwrap_or_default();
         if count[m.name.as_str()] + outside == 1 && !m.output {
             let n = &m.name;
-            return Err(Error::new(
-                ErrorKind::Unbound,
+            return Err(ReadError::new(
+                ReadErrorKind::Unbound,
                 m.pos,
                 format!("?{n} appears only once, so it matches anything"),
             )
@@ -386,8 +386,8 @@ fn check_variables(
     for m in mentions {
         if m.binds() && m.optional && count[m.name.as_str()] > 1 && !m.prior.contains(&m.name) {
             let n = &m.name;
-            return Err(Error::new(
-                    ErrorKind::Unbound,
+            return Err(ReadError::new(
+                    ReadErrorKind::Unbound,
                     m.pos,
                     format!("?{n} is bound in an optional pattern, so it may be unbound where it is used again"),
                 )
@@ -400,8 +400,8 @@ fn check_variables(
         });
         if !bound {
             let n = &m.name;
-            return Err(Error::new(
-                ErrorKind::Unbound,
+            return Err(ReadError::new(
+                ReadErrorKind::Unbound,
                 m.pos,
                 format!("?{n} is only compared, never bound"),
             )
@@ -420,7 +420,7 @@ impl Query {
         scopes: &Scopes,
         root: usize,
         absent_scopes: &[usize],
-    ) -> Result<(), Error> {
+    ) -> Result<(), ReadError> {
         for (pattern, &scope) in self.absent.iter().zip(absent_scopes) {
             let shares = |required: bool| {
                 mentions.iter().any(|m| {
@@ -434,14 +434,14 @@ impl Query {
                 })
             };
             if !shares(false) {
-                return Err(Error::syntax(
+                return Err(ReadError::syntax(
                     pattern.pos,
                     "(not ...) shares no variable with the patterns of the query, so it drops every row or none",
                 )
                 .with_hint("use a ?variable bound by another pattern"));
             }
             if !shares(true) {
-                return Err(Error::syntax(
+                return Err(ReadError::syntax(
                     pattern.pos,
                     "(not ...) shares only variables bound by optional patterns, so it cannot decide",
                 )
@@ -451,7 +451,11 @@ impl Query {
         Ok(())
     }
 
-    fn check_connected(&self, mentions: &[Mention], absent_scopes: &[usize]) -> Result<(), Error> {
+    fn check_connected(
+        &self,
+        mentions: &[Mention],
+        absent_scopes: &[usize],
+    ) -> Result<(), ReadError> {
         let mut component: Vec<usize> = (0..self.members.len()).collect();
         let joined = |a: &Mention| (!a.negated).then_some(a.member).flatten();
         for a in mentions {
@@ -481,7 +485,7 @@ impl Query {
         }
         for (i, pattern) in self.members.iter().enumerate().skip(1) {
             if find(&component, i) != find(&component, 0) {
-                return Err(Error::syntax(
+                return Err(ReadError::syntax(
                     pattern.pos,
                     "this pattern shares no variable with the first, so every combination would match: a cartesian product between disconnected patterns",
                 )

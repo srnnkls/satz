@@ -5,6 +5,8 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
+use tela::query::ReadError;
+
 /// A command's failure, with its causes joined into one message.
 #[derive(Debug)]
 pub(crate) struct Failure(String);
@@ -22,6 +24,22 @@ impl Failure {
             message.push_str(": ");
             message.push_str(&cause.to_string());
             source = cause.source();
+        }
+        Self(message)
+    }
+
+    /// The reader's error with the line of `source` it points into and a
+    /// caret under its offset.
+    pub(crate) fn explain(source: &str, error: &ReadError) -> Self {
+        let offset = error.offset().min(source.len());
+        let before = source.get(..offset).unwrap_or(source);
+        let start = before.rfind('\n').map_or(0, |newline| newline + 1);
+        let line = source[start..].lines().next().unwrap_or_default();
+        let column = before[start..].chars().count();
+        let mut message = format!("{}\n  {line}\n  {}^", error.message(), " ".repeat(column));
+        if let Some(hint) = error.hint() {
+            message.push_str("\n  ");
+            message.push_str(hint);
         }
         Self(message)
     }
