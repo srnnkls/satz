@@ -23,3 +23,11 @@ resolved = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 commit = "2f3c6e14dcd3b50a143501a64ffe8bfe2704d11e"
 digest = "blake3:a9a2b8329946e780b42f8244f9565c0bbc03a33db426ba93fb13fa1bca66f724"
 config_digest = "blake3:30d7d2aeb7f8c7b458244b7ea896c26962e4c7cc9798dc169a7baf8b6e3e08ca"
+
+[[sources]]
+name = "mq"
+git = "https://github.com/harehare/mq.git"
+resolved = "default"
+commit = "9153b2fa5bab228555d1790fb29b55cf50cd49d5"
+digest = "blake3:15b466af2a2ac1fdcc3956aa789d85e44fd61a38ade68ad91d3956f279e1370f"
+config_digest = "blake3:2022ec9d571ba774cf9e83d0194962f5d1e3aa1a48d486a67e2762a6c7959015"
