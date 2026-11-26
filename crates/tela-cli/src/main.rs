@@ -1,4 +1,8 @@
-//! The `tela` command.
+//! The `tela` command: `tela query` prints the rows a tq pattern matches in
+//! Markdown and text files, and `tela lint` checks them against tela's std
+//! rules and the inline rules of `tela.toml`. Results go to stdout and
+//! errors to stderr; exit status 0 is clean, 1 is failing findings and 2 a
+//! usage, query or config error.
 #![forbid(unsafe_code)]
 
 mod config;
