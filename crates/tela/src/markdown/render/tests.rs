@@ -26,7 +26,7 @@ const RENDERINGS: &[(&str, &str, RenderFormat, &str)] = &[
         "nested directives",
         ":::outer\n:::inner\nx\n:::\n:::\n",
         Keep,
-        "::::outer\n:::inner\nx\n:::\n::::\n",
+        ":::outer\n:::inner\nx\n:::\n:::\n",
     ),
     (
         "nested directives attributes",
@@ -139,8 +139,8 @@ const RENDERINGS: &[(&str, &str, RenderFormat, &str)] = &[
 fn documents_render_in_each_format() {
     for &(name, text, format, want) in RENDERINGS {
         let mut doc = parse("skill.md", text);
-        doc.render(format)
-            .unwrap_or_else(|problem| panic!("{name}: {problem}"));
+        let problems = doc.render(format);
+        assert!(problems.is_empty(), "{name}: {problems:?}");
         assert_eq!(doc.to_string(), want, "{name}");
     }
 }
@@ -148,7 +148,7 @@ fn documents_render_in_each_format() {
 #[test]
 fn markdown_format_quotes_and_escapes_labels() {
     let mut doc = parse("a.md", ":x[y]{a=\"t\\u0085b\" k=\"*_[x]<\"}\n");
-    doc.render(Markdown).unwrap();
+    assert!(doc.render(Markdown).is_empty());
     assert_eq!(
         doc.to_string(),
         "**x a=\"t\\u0085b\" k=\"\\*\\_\\[x\\]&lt;\":** y\n"
@@ -170,9 +170,19 @@ fn invalid_markup_is_located_in_the_source() {
         "::x{k=1 k=2 bad=}",
     ] {
         let mut doc = Document::parse("skill.md", &format!("intro\n\n{text}\n")).value;
-        let problem = doc.render(Xml).unwrap_err();
-        assert_eq!(problem.origin.line(), Some(3), "{text:?}: {problem}");
+        let problems = doc.render(Xml);
+        assert!(!problems.is_empty(), "{text:?}");
+        for problem in &problems {
+            assert_eq!(problem.origin.line(), Some(3), "{text:?}: {problem}");
+        }
     }
+}
+
+#[test]
+fn every_failing_block_is_reported_in_source_order() {
+    let mut doc = Document::parse("a.md", ":x[y]{a=}\n\nfine\n\n:z[w]{b=}\n").value;
+    let lines: Vec<_> = doc.render(Xml).iter().map(|p| p.origin.line()).collect();
+    assert_eq!(lines, [Some(1), Some(5)]);
 }
 
 #[test]
@@ -185,10 +195,10 @@ fn rendering_keep_is_idempotent() {
         "- :::n{#i .c}\n  ::l[t]{k=\"a b\"}\n  :::\n",
     ] {
         let mut doc = parse("a.md", text);
-        doc.render(Keep).unwrap();
+        assert!(doc.render(Keep).is_empty());
         let once = doc.to_string();
         let mut again = parse("a.md", &once);
-        again.render(Keep).unwrap();
+        assert!(again.render(Keep).is_empty());
         assert_eq!(again.to_string(), once, "{text:?}");
     }
 }

@@ -30,6 +30,7 @@ use crate::tree::Origin;
 /// Malformed input met while parsing a document or its frontmatter.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{origin}: {message}")]
+#[non_exhaustive]
 pub struct Problem {
     /// Where the problem starts.
     pub origin: Origin,
@@ -40,6 +41,7 @@ pub struct Problem {
 /// A parse result with the problems met along the way; parsing never fails
 /// outright.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Parsed<T> {
     /// What was parsed.
     pub value: T,
@@ -47,19 +49,27 @@ pub struct Parsed<T> {
     pub problems: Vec<Problem>,
 }
 
-/// One expansion step: the directive that invoked a component and the
-/// component line that produced the item.
+/// One expansion step: the directive that invoked a definition and the
+/// definition line that produced the item.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Call {
     /// The invoking directive.
     pub directive: Origin,
-    /// The component line that produced the item.
-    pub component: Origin,
+    /// The definition line that produced the item.
+    pub definition: Origin,
 }
 
-/// The expansion steps behind an item, outermost first.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Expansion(pub Vec<Call>);
+impl Call {
+    /// The step from `directive` to the `definition` line it expanded.
+    #[must_use]
+    pub fn new(directive: Origin, definition: Origin) -> Self {
+        Self {
+            directive,
+            definition,
+        }
+    }
+}
 
 /// A mutable node of a [`Document`], named with the tree's node types.
 ///
@@ -80,8 +90,8 @@ pub struct Item {
     pub children: Vec<Item>,
     /// Where the item was parsed from.
     pub origin: Origin,
-    /// How expansion produced it.
-    pub expansion: Expansion,
+    /// The expansion steps that produced it, outermost first.
+    pub expansion: Vec<Call>,
     snapshot: Option<Arc<Snapshot>>,
     anchors: Vec<Arc<Snapshot>>,
 }
@@ -96,7 +106,7 @@ impl Item {
             text: String::new(),
             children: Vec::new(),
             origin,
-            expansion: Expansion::default(),
+            expansion: Vec::new(),
             snapshot: None,
             anchors: Vec::new(),
         }
@@ -193,9 +203,11 @@ impl fmt::Display for RenderFormat {
 /// writes it back: untouched items byte for byte, edited items in canonical
 /// form.
 ///
-/// Container fences take canonical lengths, each one colon longer than the
-/// longest fence it holds, and NUL reads as U+FFFD. An item that moved is re-indented to its new
-/// place; an item from another document writes its own source.
+/// An unedited document writes back byte for byte, but for NUL, which reads
+/// as U+FFFD. A constructed or edited container takes the canonical fence,
+/// one colon longer than the longest fence it holds. An item that moved is
+/// re-indented to its new place; an item from another document writes its
+/// own source.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Document {
@@ -227,12 +239,13 @@ impl Document {
 
     /// Renders the document's directives in place: as normalized directive
     /// syntax, XML elements or plain Markdown. Each block that changes is
-    /// replaced by a `text` item of its rendering.
+    /// replaced by a `text` item of its rendering. A block that cannot
+    /// render keeps its source while the others render.
     ///
-    /// # Errors
-    /// Returns the first [`Problem`] of a block that cannot render; such
-    /// blocks keep their source while the others render.
-    pub fn render(&mut self, format: RenderFormat) -> Result<(), Problem> {
+    /// Returns the problems of the blocks that cannot render, in source
+    /// order; none when every block rendered.
+    #[must_use = "a block that cannot render is reported only here"]
+    pub fn render(&mut self, format: RenderFormat) -> Vec<Problem> {
         render::render(self, format)
     }
 

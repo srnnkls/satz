@@ -39,14 +39,13 @@ static LABELS: LazyLock<MarkdownIt> = LazyLock::new(|| {
 const MAX_DEPTH: usize = 100;
 
 /// Renders every directive of `doc` in `format`, replacing each changed
-/// block with its rendered text. Blocks that fail keep their source.
-pub(super) fn render(doc: &mut Document, format: RenderFormat) -> Result<(), Problem> {
+/// block with its rendered text. Blocks that fail keep their source; their
+/// problems come back in source order.
+pub(super) fn render(doc: &mut Document, format: RenderFormat) -> Vec<Problem> {
     let mut problems = Vec::new();
     render_items(&mut doc.children, format, &mut problems);
+    problems.sort_by_key(|problem| problem.origin.position().map(|p| (p.line(), p.column())));
     problems
-        .into_iter()
-        .min_by_key(|problem| problem.origin.position().map(|p| (p.line(), p.column())))
-        .map_or(Ok(()), Err)
 }
 
 fn render_items(items: &mut [Item], format: RenderFormat, problems: &mut Vec<Problem>) {
@@ -130,7 +129,7 @@ fn replace_text(items: &mut [Item], i: usize, text: String) {
     let old = &items[i];
     let mut replacement = Item::new("text", old.origin.clone());
     replacement.text = text;
-    replacement.expansion = old.expansion.clone();
+    replacement.expansion.clone_from(&old.expansion);
     if let Some(replacement) = old.replace([replacement]).pop() {
         items[i] = replacement;
     }

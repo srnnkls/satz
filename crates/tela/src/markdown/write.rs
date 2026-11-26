@@ -382,13 +382,21 @@ fn relinked(item: &Item, p: &Snapshot) -> Option<(Range<usize>, String)> {
 }
 
 /// The opening and closing delimiters of a parsed directive: as written, or
-/// rebuilt from its name and attributes when `rewrite` is set. Container
-/// fences take their canonical length.
+/// rebuilt from its name and attributes when `rewrite` is set. A container
+/// fence takes the length [`fence_length`] gives it.
 fn fences(item: &Item, p: &Snapshot, d: &Delimiters, rewrite: bool) -> (Vec<u8>, Vec<u8>) {
     let source = &p.source;
     let name = attr(item, "name");
     if d.fence >= 3 {
-        let colons = ":".repeat(fence_length(item));
+        let length = fence_length(item);
+        if !rewrite && length == d.fence {
+            let close = d.close.map_or(p.hi, |close| close.0);
+            return (
+                source.slice(d.open.0..p.lo).to_vec(),
+                source.slice(close..p.end).to_vec(),
+            );
+        }
+        let colons = ":".repeat(length);
         let mut head = colons.clone().into_bytes();
         if rewrite {
             head.extend_from_slice(name.as_bytes());
@@ -435,9 +443,11 @@ pub(super) fn container(item: &Item) -> bool {
     }
 }
 
-/// The canonical fence of a container: one colon longer than the longest
-/// fence it contains, or line of colons that would close it, and at least
-/// three.
+/// The fence a container writes: its parsed fence while nothing in it is
+/// edited, or while only its contents are and the parsed fence is still at
+/// least canonical; else the canonical fence, one colon longer than the
+/// longest fence it contains, or line of colons that would close it, and at
+/// least three.
 fn fence_length(item: &Item) -> usize {
     fn inner(items: &[Item]) -> usize {
         items
@@ -454,7 +464,34 @@ fn fence_length(item: &Item) -> usize {
             .max()
             .unwrap_or(0)
     }
-    (inner(&item.children) + 1).max(3)
+    let parsed = item
+        .snapshot
+        .as_ref()
+        .filter(|p| item.text == p.text && item.attrs == p.attrs)
+        .and_then(|p| p.delimiters);
+    if let Some(d) = parsed
+        && pristine(item)
+    {
+        return d.fence;
+    }
+    let canonical = (inner(&item.children) + 1).max(3);
+    parsed.map_or(canonical, |d| d.fence.max(canonical))
+}
+
+/// Whether `item` and everything in it is as parsed.
+fn pristine(item: &Item) -> bool {
+    item.snapshot.as_ref().is_some_and(|p| {
+        item.text == p.text
+            && item.attrs == p.attrs
+            && item.children.len() == p.slots.len()
+            && item.children.iter().zip(&p.slots).all(|(child, slot)| {
+                child
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|own| Arc::ptr_eq(own, &slot.item))
+                    && pristine(child)
+            })
+    })
 }
 
 /// The length of the longest line of `text` that is only colons.

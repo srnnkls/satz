@@ -13,7 +13,7 @@ use crate::frontend::Frontend;
 use crate::tree::{Node, NodeId, Origin, Position, Tree};
 
 /// The Markdown frontend: Markdown with tables, raw HTML, directives and
-/// YAML frontmatter, read into henia's node types.
+/// YAML frontmatter, read into the core node types.
 ///
 /// The file node holds a `frontmatter` node with an `entry` per scalar, a
 /// `problem` node for malformed frontmatter or directives, and the body's

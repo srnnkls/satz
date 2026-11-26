@@ -73,24 +73,50 @@ fn unchanged_documents_are_verbatim() {
 }
 
 #[test]
-fn container_fences_take_canonical_lengths() {
+fn unedited_container_fences_are_written_verbatim() {
+    for text in [
+        "::::::a\nx\n::::::\n",
+        ":::a\n:::b\nx\n:::\n:::\n",
+        "::::a\nx\n:::::\n",
+        ":::::a{k=1}\n:::b\n::::c\nx\n::::\n:::\n:::::\n",
+    ] {
+        assert_eq!(parse("fence.md", text).to_string(), text);
+    }
+}
+
+#[test]
+fn edited_container_fences_take_canonical_lengths() {
     let cases = [
-        (":::a\n:::b\nx\n:::\n:::\n", "::::a\n:::b\nx\n:::\n::::\n"),
+        (":::a\nx\n::::::\n", "k", ":::a{k=1}\nx\n:::\n"),
+        ("::::::a\nx\n::::::\n", "k", ":::a{k=1}\nx\n:::\n"),
         (
-            ":::a{k=1}\n:::b\n:::c\nx\n:::\n:::\n:::\n",
-            ":::::a{k=1}\n::::b\n:::c\nx\n:::\n::::\n:::::\n",
-        ),
-        ("::::::a\nx\n::::::\n", ":::a\nx\n:::\n"),
-        (
-            ":::a\n:::b\n:::c\nx\n:::\n:::\n:::d\ny\n:::\n:::\n",
-            ":::::a\n::::b\n:::c\nx\n:::\n::::\n:::d\ny\n:::\n:::::\n",
+            ":::a\n:::b\nx\n:::\n:::\n",
+            "k",
+            "::::a{k=1}\n:::b\nx\n:::\n::::\n",
         ),
     ];
-    for (text, want) in cases {
-        let got = parse("fence.md", text).to_string();
-        assert_eq!(got, want);
+    for (text, key, want) in cases {
+        let mut doc = parse("fence.md", text);
+        find_mut(&mut doc, "directive", 0)
+            .attrs
+            .insert(key.to_owned(), "1".to_owned());
+        let got = doc.to_string();
+        assert_eq!(got, want, "{text:?}");
         assert_eq!(parse("fence.md", &got).to_string(), got);
     }
+}
+
+#[test]
+fn a_container_outgrown_by_an_edited_child_lengthens_its_fence() {
+    let mut doc = parse("fence.md", ":::a\n:::b\nx\n:::\n:::\n");
+    let inner = find_mut(&mut doc, "directive", 0).children[0].clone();
+    let mut grown = Item::new("directive", inner.origin.clone());
+    grown.attrs.insert("name".to_owned(), "c".to_owned());
+    grown.children.push(inner);
+    find_mut(&mut doc, "directive", 0).children[0] = grown;
+    let got = doc.to_string();
+    assert_eq!(got, ":::::a\n::::c\n:::b\nx\n:::\n::::\n:::::\n");
+    assert_eq!(parse("fence.md", &got).to_string(), got);
 }
 
 #[test]
@@ -191,12 +217,16 @@ fn documents_built_outside_the_parser_are_written() {
 }
 
 #[test]
-fn canonical_fences_inside_sections() {
-    let doc = parse("doc.md", ":::a\n# H\n:::b\n:::c\nx\n:::\n:::\n:::\n");
-    assert_eq!(
-        doc.to_string(),
-        ":::::a\n# H\n::::b\n:::c\nx\n:::\n::::\n:::::\n"
-    );
+fn fences_inside_sections_take_canonical_lengths_once_edited() {
+    let text = ":::a\n# H\n:::b\n:::c\nx\n:::\n:::\n:::\n";
+    let mut doc = parse("doc.md", text);
+    assert_eq!(doc.to_string(), text);
+    find_mut(&mut doc, "directive", 0)
+        .attrs
+        .insert("k".to_owned(), "1".to_owned());
+    let got = doc.to_string();
+    assert_eq!(got, "::::a{k=1}\n# H\n:::b\n:::c\nx\n:::\n:::\n::::\n");
+    assert_eq!(parse("doc.md", &got).to_string(), got);
 }
 
 const SYNTAX: &[(&str, &str, Edit, &str)] = &[

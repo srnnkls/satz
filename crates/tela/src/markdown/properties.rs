@@ -111,29 +111,9 @@ fn written(text: &str) -> String {
     Document::parse("doc.md", text).value.to_string()
 }
 
-/// `text` with every run of three or more colons cut to three.
-fn fences_cut(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut run = 0;
-    for c in text.chars() {
-        run = if c == ':' { run + 1 } else { 0 };
-        if run <= 3 {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Byte for byte but for container fences, which take canonical lengths,
-/// and NUL, which reads as U+FFFD; written once, the text is canonical and
-/// writes back unchanged.
+/// Byte for byte but for NUL, which reads as U+FFFD.
 fn round_trips(text: &str) {
-    let once = written(text);
-    assert_eq!(
-        fences_cut(&once),
-        fences_cut(&text.replace('\0', "\u{fffd}"))
-    );
-    assert_eq!(written(&once), once);
+    assert_eq!(written(text), text.replace('\0', "\u{fffd}"));
 }
 
 proptest! {

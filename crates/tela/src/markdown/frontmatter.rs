@@ -10,6 +10,7 @@ use crate::tree::{Origin, Position};
 
 /// One frontmatter scalar: the value of a key, or an element of a list value.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     /// The dotted key path, such as `nested.key`.
     pub key: String,
@@ -27,11 +28,13 @@ pub struct Entry {
 
 /// A file's leading YAML block between `---` fences.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Frontmatter {
     /// The YAML between the fences, trimmed.
     pub text: String,
     /// The top-level keys whose values are strings, booleans or numbers,
-    /// with the values as written by henia.
+    /// each value decoded and printed back as text, such as `true`, `12` or
+    /// `0.5`.
     pub attrs: BTreeMap<String, String>,
     /// The YAML document, if the block holds one.
     pub root: Option<YamlNode>,
@@ -149,6 +152,7 @@ fn fence(text: &str) -> Option<Fence<'_>> {
 
 /// A node of the frontmatter's YAML.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct YamlNode {
     /// What the node holds.
     pub value: YamlValue,
@@ -164,6 +168,7 @@ pub struct YamlNode {
 
 /// What a [`YamlNode`] holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum YamlValue {
     /// A scalar as written.
     Scalar(String),

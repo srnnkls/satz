@@ -11,7 +11,7 @@ use super::attributes::Fault;
 use super::builder::{self, Element};
 use super::directive::{self, Delimiters, find_closure};
 use super::parse::Markdown;
-use super::{Document, Expansion, Item, Parsed, Problem};
+use super::{Document, Item, Parsed, Problem};
 use crate::tree::{Origin, Position};
 
 /// The block parser every document is read with.
@@ -342,7 +342,7 @@ fn convert(source: &Arc<Source>, mut element: Element, indent: usize, limit: usi
         text: item_text,
         children,
         origin,
-        expansion: Expansion::default(),
+        expansion: Vec::new(),
         snapshot: Some(Arc::new(snapshot)),
         anchors: Vec::new(),
     }

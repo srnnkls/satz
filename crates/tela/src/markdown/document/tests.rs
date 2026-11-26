@@ -18,9 +18,9 @@ fn grafted_subtree_keeps_origin_and_expansion() {
     assert_eq!(generated.origin.position().map(Position::span), Some(span));
     assert_eq!(generated.origin.to_string(), "components/card.md:3:1");
 
-    generated.expansion.0.push(Call {
+    generated.expansion.push(Call {
         directive: call,
-        component: generated.origin.clone(),
+        definition: generated.origin.clone(),
     });
     host.children.push(generated);
 
@@ -29,8 +29,8 @@ fn grafted_subtree_keeps_origin_and_expansion() {
     assert!(out.contains("beta  *keep*\\\n   odd   text"), "{out:?}");
     let grafted = host.children.last().unwrap();
     assert_eq!(grafted.origin.file(), "components/card.md");
-    assert_eq!(grafted.expansion.0.len(), 1);
-    assert_eq!(grafted.expansion.0[0].directive.file(), "skill.md");
+    assert_eq!(grafted.expansion.len(), 1);
+    assert_eq!(grafted.expansion[0].directive.file(), "skill.md");
 }
 
 #[test]
