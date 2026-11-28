@@ -320,7 +320,10 @@ fn convert(source: &Arc<Source>, mut element: Element, indent: usize, limit: usi
             snapshot.lo = lo;
             snapshot.hi = hi;
             snapshot.delimiters = Some(delimiters);
-            item_text = element.label.take().unwrap_or_default();
+            item_text = element
+                .label
+                .take()
+                .unwrap_or_else(|| lossy(source.slice(lo..hi)));
         }
         ("directive", None) => snapshot.inline = true,
         _ => {

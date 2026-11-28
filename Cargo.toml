@@ -12,7 +12,7 @@ authors = ["Sören Nikolaus <soeren@code17.io>"]
 [workspace.dependencies]
 clap = { version = "4.6.10", features = ["derive"] }
 ignore = "0.4.35"
-markdown-it-rs = { git = "https://github.com/GSGFs7/markdown-it-rs", rev = "fffca16c2c231f25e9f37d1997c7a7e68576f107", version = "0.7.0", default-features = false, features = ["sourcemap"] }
+markdown-it-rs = { git = "https://github.com/srnnkls/markdown-it-rs", rev = "9cd75768fb6d9bf382052fdfd82a08024fefd3bc", version = "0.7.0", default-features = false, features = ["sourcemap"] }
 model2vec-rs = { version = "0.5.1", default-features = false, features = ["fancy-regex", "local-only"] }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 regex = "1.13.2"

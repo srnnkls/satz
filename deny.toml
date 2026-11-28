@@ -20,4 +20,4 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-git = ["https://github.com/GSGFs7/markdown-it-rs"]
+allow-git = ["https://github.com/srnnkls/markdown-it-rs"]

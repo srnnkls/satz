@@ -178,7 +178,7 @@ pub(super) fn add_rules(md: &mut MarkdownIt, rules: &[Arc<dyn super::InlineRule>
             spec.inline_leaf::<InlineDirective>(i.to_string())
                 .marker(rule.trigger())
                 .parse(move |cx| {
-                    let claim = rule.claim(cx.remaining())?;
+                    let claim = rule.claim(cx.before(), cx.remaining())?;
                     (claim.len > 0 && cx.advance_bytes(claim.len))
                         .then(|| InlineDirective::claimed(claim))
                 })

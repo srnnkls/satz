@@ -632,7 +632,7 @@ checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
 [[package]]
 name = "markdown-it-rs"
 version = "0.7.0"
-source = "git+https://github.com/GSGFs7/markdown-it-rs?rev=fffca16c2c231f25e9f37d1997c7a7e68576f107#fffca16c2c231f25e9f37d1997c7a7e68576f107"
+source = "git+https://github.com/srnnkls/markdown-it-rs?rev=9cd75768fb6d9bf382052fdfd82a08024fefd3bc#9cd75768fb6d9bf382052fdfd82a08024fefd3bc"
 dependencies = [
  "downcast-rs",
  "entities",
@@ -646,7 +646,7 @@ dependencies = [
 [[package]]
 name = "markdown-it-rs-url"
 version = "0.1.0"
-source = "git+https://github.com/GSGFs7/markdown-it-rs?rev=fffca16c2c231f25e9f37d1997c7a7e68576f107#fffca16c2c231f25e9f37d1997c7a7e68576f107"
+source = "git+https://github.com/srnnkls/markdown-it-rs?rev=9cd75768fb6d9bf382052fdfd82a08024fefd3bc#9cd75768fb6d9bf382052fdfd82a08024fefd3bc"
 
 [[package]]
 name = "memchr"
@@ -1377,7 +1377,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
