@@ -225,3 +225,29 @@ Inside a Git repository, a walk skips what Git ignores; `node_modules` and `vend
 $ mkdir -p vendor && printf '# Vendored\n' > vendor/v.md && git init -q && printf 'docs/b.md\n' > .gitignore && satz query '(file) @f'
 @f  docs/a.md  file
 ```
+
+## Edits
+
+`--write` writes nothing when any file's edits overlap: here `edits/a.md` has one heading, and `edits/b.md` two that each replace the other.
+
+```scrut
+$ mkdir edits && printf '# One\n' > edits/a.md && printf '# Two\n\n# Three\n' > edits/b.md
+```
+
+```scrut
+$ satz query --path edits '(file :path ?p (heading) @h) (file :path ?p (heading :text ?u) @g) (replace @h "# X {?u}")' --write 2>&1
+satz: edits/b.md: * overlap (glob)
+[2]
+```
+
+```scrut
+$ cat edits/a.md
+# One
+```
+
+A `times` count too large to repeat is an error.
+
+```scrut
+$ printf '# 18446744073709551615\n' > count.md && satz query --path count.md '(heading :text ?v) @h (replace @h "{?v|times:##}")' 2>/dev/null
+[2]
+```

@@ -254,12 +254,17 @@ impl<'s> Reader<'s> {
         if close.kind != Kind::Close {
             return Err(unexpected(&close, &format!(") closing ({}", head.text)));
         }
-        self.printed.extend(
-            placeholders(&template)
-                .into_iter()
-                .filter(|p| p.sigil == Sigil::Var)
-                .map(|p| p.name.to_owned()),
-        );
+        for placeholder in placeholders(&template) {
+            match placeholder.sigil {
+                Sigil::Var => self.printed.push(placeholder.name.to_owned()),
+                Sigil::Param => {
+                    self.params
+                        .entry(placeholder.name.to_owned())
+                        .or_insert(ParamKind::Text);
+                }
+                Sigil::Capture => {}
+            }
+        }
         edits.push(EditForm {
             action,
             capture: capture.text,

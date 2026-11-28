@@ -128,7 +128,7 @@ impl Plan {
                 return Err(query::RunError::MissingParam(name));
             }
             for row in query.run(tree, environment)? {
-                found.extend(self.diagnostic(clause, &row, tree, environment));
+                found.extend(self.diagnostic(clause, &row, tree, environment)?);
             }
         }
         Ok(found)
@@ -140,15 +140,18 @@ impl Plan {
         row: &Row,
         tree: &Tree,
         environment: &Environment,
-    ) -> Option<Diagnostic> {
+    ) -> Result<Option<Diagnostic>, query::RunError> {
         let rule = &clause.rule;
-        let at = rule
+        let Some(at) = rule
             .at
             .iter()
             .chain(rule.query.captures())
-            .find_map(|name| node(row, tree, name))?;
+            .find_map(|name| node(row, tree, name))
+        else {
+            return Ok(None);
+        };
         if self.disabled_in_file(at, &rule.id) {
-            return None;
+            return Ok(None);
         }
         let origin = match rule.focus.as_ref().and_then(|var| row.vars.get(var)) {
             Some(value) => focus(&at.node().origin, &at.node().text, value),
@@ -165,18 +168,18 @@ impl Plan {
             .as_ref()
             .and_then(|(a, b)| Some(shared_phrases(node(row, tree, a)?, node(row, tree, b)?)))
             .unwrap_or_default();
-        let message = render(&rule.message, row, tree, &environment.params)
+        let message = render(&rule.message, row, tree, &environment.params)?
             .replace("{shared}", &shared.join("; "));
         let fixes = rule
             .query
-            .changes(slice::from_ref(row), tree, &environment.params);
+            .changes(slice::from_ref(row), tree, &environment.params)?;
         let diagnostic = Diagnostic::new(rule.id.clone(), origin, rule.severity, message)
             .with_related(related)
             .with_fixes(fixes);
-        Some(match score(clause, row, shared, environment) {
+        Ok(Some(match score(clause, row, shared, environment) {
             Some(score) => diagnostic.with_score(score),
             None => diagnostic,
-        })
+        }))
     }
 
     /// Whether the file holding `at` names `rule` under the disable key of

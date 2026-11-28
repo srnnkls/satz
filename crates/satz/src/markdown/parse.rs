@@ -270,10 +270,10 @@ impl Nuls {
 
 impl Place<'_> {
     fn graft(&self, tree: &mut Tree, parent: NodeId, element: Element) {
-        let parsed = element.start.unwrap_or_default();
+        let (parsed, end) = marked(&element);
         let start = self.nuls.body(parsed);
         let position = Position::new(
-            start..self.nuls.body(element.end).max(start),
+            start..self.nuls.body(end).max(start),
             count(element.line)..=count(element.end_line.max(element.line)),
             count(self.nuls.column(element.line, element.column)),
         )
@@ -294,6 +294,17 @@ impl Place<'_> {
         for child in element.children {
             self.graft(tree, id, child);
         }
+    }
+}
+
+/// The parsed span `element` edits: a list, item or quote from its first
+/// marker, a heading from its marker through its underline or closing `#`s.
+fn marked(element: &Element) -> (usize, usize) {
+    let (start, end) = (element.start.unwrap_or_default(), element.end);
+    match (element.kind, element.source) {
+        ("list" | "item" | "quote", Some((marker, _))) => (marker.min(start), end),
+        ("heading", Some((marker, last))) => (marker, end.max(last)),
+        _ => (start, end),
     }
 }
 

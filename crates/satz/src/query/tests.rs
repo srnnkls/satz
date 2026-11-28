@@ -1966,7 +1966,7 @@ fn edits_change_the_file_text_past_the_frontmatter() {
     .unwrap();
     let env = Environment::new(UNIX_EPOCH);
     let rows = query.run(&tree, &env).unwrap();
-    let changes = query.changes(&rows, &tree, &env.params);
+    let changes = query.changes(&rows, &tree, &env.params).unwrap();
     let edited = crate::edit::apply(text, &changes).unwrap();
     assert_eq!(
         edited,
@@ -2000,4 +2000,153 @@ fn division_follows_an_open_paren_and_hash_quotes_hold_slashes() {
     assert_eq!(count(r"(link :url /^https:\/\//) @l"), 1);
     let error = Query::read(r#"(link :url #"^docs/) @l"#, &Schema::core(), None).unwrap_err();
     assert!(error.message().contains("unterminated"), "{error:?}");
+}
+
+fn edited(text: &str, source: &str) -> String {
+    let tree = files(&[("a.md", text)]);
+    let query = Query::read(source, &Schema::core(), None).unwrap();
+    let env = Environment::new(UNIX_EPOCH);
+    let rows = query.run(&tree, &env).unwrap();
+    let changes = query.changes(&rows, &tree, &env.params).unwrap();
+    crate::edit::apply(text, &changes).unwrap()
+}
+
+#[test]
+fn edits_on_items_and_quotes_include_their_markers() {
+    let list = "- one\n- two\n";
+    assert_eq!(
+        edited(list, r#"(item :text "one") @i (insert-before @i "* ")"#),
+        "* - one\n- two\n"
+    );
+    assert_eq!(
+        edited(list, r#"(item :text "one") @i (delete @i)"#),
+        "- two\n"
+    );
+    assert_eq!(
+        edited("1. one\n2. two\n", r#"(item :text "one") @i (delete @i)"#),
+        "2. two\n"
+    );
+    assert_eq!(
+        edited("Intro.\n\n> Quoted.\n\nAfter.\n", "(quote) @q (delete @q)"),
+        "Intro.\n\nAfter.\n"
+    );
+}
+
+#[test]
+fn edits_on_lists_include_their_first_marker() {
+    let list = "- one\n- two\n";
+    assert_eq!(
+        edited(
+            "Intro.\n\n- one\n- two\n\nAfter.\n",
+            "(list) @l (delete @l)"
+        ),
+        "Intro.\n\nAfter.\n"
+    );
+    assert_eq!(edited(list, r#"(list) @l (replace @l "- new")"#), "- new\n");
+    assert_eq!(
+        edited(list, r#"(list) @l (insert-before @l "X")"#),
+        "X- one\n- two\n"
+    );
+    assert_eq!(
+        edited("1. one\n2. two\n", r#"(list) @l (replace @l "1. new")"#),
+        "1. new\n"
+    );
+    assert_eq!(
+        edited("> - one\n> - two\n", r#"(list) @l (replace @l "- new")"#),
+        "> - new\n"
+    );
+    assert_eq!(
+        edited("> - one\n> - two\n", r#"(list) @l (insert-before @l "X")"#),
+        "> X- one\n> - two\n"
+    );
+}
+
+#[test]
+fn edits_on_headings_include_their_marker() {
+    assert_eq!(
+        edited("Intro.\n\n# Title\n\nBody.\n", "(heading) @h (delete @h)"),
+        "Intro.\n\nBody.\n"
+    );
+    assert_eq!(
+        edited(
+            "# Title\n\nBody.\n",
+            r###"(heading) @h (replace @h "## New")"###
+        ),
+        "## New\n\nBody.\n"
+    );
+    assert_eq!(
+        edited(
+            "# Title\n\nBody.\n",
+            r#"(heading) @h (insert-before @h "X")"#
+        ),
+        "X# Title\n\nBody.\n"
+    );
+    assert_eq!(
+        edited("- # G\n", r##"(heading) @h (replace @h "# X")"##),
+        "- # X\n"
+    );
+    assert_eq!(
+        edited("- # G\n", r#"(heading) @h (insert-before @h "X")"#),
+        "- X# G\n"
+    );
+    assert_eq!(
+        edited("> # H\n", r##"(heading) @h (replace @h "# X")"##),
+        "> # X\n"
+    );
+    assert_eq!(
+        edited("> # H\n", r#"(heading) @h (insert-before @h "X")"#),
+        "> X# H\n"
+    );
+    assert_eq!(
+        edited("> Title\n> =====\n", r##"(heading) @h (replace @h "# T")"##),
+        "> # T\n"
+    );
+}
+
+#[test]
+fn edits_on_setext_headings_include_their_underline() {
+    assert_eq!(
+        edited(
+            "Title\n=====\n\nBody.\n",
+            r##"(heading) @h (replace @h "# Title")"##
+        ),
+        "# Title\n\nBody.\n"
+    );
+    assert_eq!(
+        edited("Intro.\n\nSub\n---\n\nBody.\n", "(heading) @h (delete @h)"),
+        "Intro.\n\nBody.\n"
+    );
+}
+
+#[test]
+fn arithmetic_compares_equal_as_numbers() {
+    let tree = files(&[(
+        "a.md",
+        "---\none: \"1\"\none-again: \"1.0\"\nnan: \"NaN\"\nnan-again: \"NaN\"\nzero: \"0\"\nminus-zero: \"-0\"\n---\n\n# A\n",
+    )]);
+    let env = Environment::new(UNIX_EPOCH);
+    let equal = |a: &str, b: &str| {
+        let source =
+            format!(r#"(entry :key "{a}" :value ?x) @a (entry :key "{b}" :value (+ ?x 0)) @b"#);
+        let query = Query::read(&source, &Schema::core(), None).unwrap();
+        !query.run(&tree, &env).unwrap().is_empty()
+    };
+    assert!(equal("one", "one-again"));
+    assert!(!equal("nan", "nan-again"), "NaN equals nothing");
+    assert!(equal("zero", "minus-zero"), "-0 equals 0");
+}
+
+#[test]
+fn edit_templates_name_only_known_variables_and_params() {
+    let tree = files(&[("a.md", "# Guide\n")]);
+    let env = Environment::new(UNIX_EPOCH);
+    let read = |source: &str| Query::read(source, &Schema::core(), None);
+    assert!(read(r#"(heading :level ?l) @h (replace @h "{?l|times:#} X")"#).is_ok());
+    let error = read(r#"(heading :level ?l) @h (replace @h "{?l|times:#} {?tilte}")"#).unwrap_err();
+    assert!(error.message().contains("tilte"), "{error:?}");
+    let param = read(r#"(heading :level ?l) @h (replace @h "{?l|times:#} {$tilte}")"#);
+    assert!(
+        param.is_err() || param.unwrap().run(&tree, &env).is_err(),
+        "an unset $tilte must not blank the heading"
+    );
 }

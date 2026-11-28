@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::group::{Group, repeated_captures};
 use super::pattern::{Check, Pattern};
 use super::{Query, ReadError, ReadErrorKind};
+use crate::template::{Sigil, placeholders};
 
 /// A variable's occurrence in a pattern.
 #[derive(Debug, Clone)]
@@ -354,11 +355,35 @@ impl Query {
             checked?;
         }
         self.check_sorts(&mentions)?;
+        self.check_edit_vars(&mentions)?;
         let mut uses = self.group.as_ref().map(Group::uses).unwrap_or_default();
         self.output_uses(&mut uses);
         check_variables(&mentions, &scopes, &uses)?;
         self.check_absent(&mentions, &scopes, root, &absent_scopes)?;
         self.check_connected(&mentions, &absent_scopes)
+    }
+
+    /// Fails when an edit's template names a `?variable` no pattern binds.
+    fn check_edit_vars(&self, mentions: &[Mention]) -> Result<(), ReadError> {
+        for edit in &self.edits {
+            let unbound = placeholders(&edit.template).into_iter().find(|p| {
+                p.sigil == Sigil::Var
+                    && !mentions
+                        .iter()
+                        .any(|m| m.name == p.name && m.binds() && !m.negated)
+            });
+            if let Some(unbound) = unbound {
+                return Err(ReadError::new(
+                    ReadErrorKind::Unbound,
+                    edit.pos,
+                    format!(
+                        "the template names ?{}, which no pattern binds",
+                        unbound.name
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

@@ -353,7 +353,7 @@ terminates, since values only ever come from the tree. A recursive define:
 - takes `?variables` only, and is called at the top level of a query or a
   clause, joined to its patterns on shared variables, without a capture;
 - may be negated at the top level of a query, as `(not (reach ?p ?p))`, but
-  not inside its own clauses or those of the defines it calls.
+  not inside the clauses of any recursive define.
 
 Files that reach `c.md` through links, at any distance:
 
