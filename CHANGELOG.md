@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/srnnkls/satz/compare/v0.1.0...v0.2.0) - 2026-11-28
+
+### Features
+
+- *(query)* [**breaking**] Arithmetic, edits, recursive defines and frontend schemas
+- *(markdown)* [**breaking**] Pass inline rules the character before their trigger
+- *(markdown)* Register inline rules that yield directives
+
+### Bug Fixes
+
+- *(query)* [**breaking**] Edit whole blocks and write nothing on a failed plan
+- *(markdown)* Give origins file offsets past the frontmatter
+
+### Refactor
+
+- Name the query language sq
+
+### Miscellaneous Tasks
+
+- Ship sq as a shim for satz query
+
+
 ### Features
 
 - Inline rules for the Markdown frontend: `Markdown::with_inline_rule` registers an `InlineRule` whose claimed text parses into an inline directive node at the claimed source, in trees and in the documents and renderings of `Markdown::document` and `Markdown::empty_document`.
