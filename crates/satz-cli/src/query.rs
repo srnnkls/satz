@@ -95,7 +95,9 @@ pub(crate) fn run(args: &Args, config: &Source, out: &mut impl Write) -> Result<
                 "a query with edits prints their diff; drop --json, --text, --count and --limit",
             ));
         }
-        let changes = query.changes(&rows, &corpus.tree, &corpus.environment.params);
+        let changes = query
+            .changes(&rows, &corpus.tree, &corpus.environment.params)
+            .map_err(|error| Failure::chain(&error))?;
         if edits::emit(changes, args.write, out)? == 0 {
             eprintln!("satz: no edits");
         }

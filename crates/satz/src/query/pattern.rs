@@ -1,5 +1,7 @@
 //! The patterns a query reads into.
 
+use std::cmp::Ordering;
+
 use regex::Regex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,7 +263,7 @@ impl Comparison {
             Self::AtLeast => value >= limit,
             Self::Below => value < limit,
             Self::AtMost => value <= limit,
-            Self::Equal => value.total_cmp(&limit).is_eq(),
+            Self::Equal => value.partial_cmp(&limit).is_some_and(Ordering::is_eq),
         }
     }
 }

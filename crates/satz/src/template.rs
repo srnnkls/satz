@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use crate::query::{self, Capture, Hit, Row, Value};
+use crate::query::{self, Capture, Hit, Row, RunError, Value};
 use crate::tree::{NodeRef, Position, Tree};
 
 /// What a placeholder reads.
@@ -37,11 +37,11 @@ pub(crate) struct Placeholder<'a> {
 pub(crate) const FILTERS: [&str; 5] = ["lower", "upper", "capitalize", "trim", "times"];
 
 /// `value` through `filters`; an unknown filter or a `times` count that is
-/// not a whole number leaves the value as it was.
-fn filter(value: String, filters: &[(&str, Option<&str>)]) -> String {
-    filters
-        .iter()
-        .fold(value, |value, &(name, arg)| match name {
+/// not a whole number leaves the value as it was, and a count too large to
+/// hold is [`RunError::TooLong`].
+fn filter(value: String, filters: &[(&str, Option<&str>)]) -> Result<String, RunError> {
+    filters.iter().try_fold(value, |value, &(name, arg)| {
+        Ok(match name {
             "lower" => value.to_lowercase(),
             "upper" => value.to_uppercase(),
             "capitalize" => {
@@ -55,11 +55,28 @@ fn filter(value: String, filters: &[(&str, Option<&str>)]) -> String {
             }
             "trim" => value.trim().to_owned(),
             "times" => match value.trim().parse::<usize>() {
-                Ok(n) => arg.unwrap_or_default().repeat(n),
+                Ok(count) => repeat(arg.unwrap_or_default(), count)?,
                 Err(_) => value,
             },
             _ => value,
         })
+    })
+}
+
+/// `text` repeated `count` times, or [`RunError::TooLong`] when that does
+/// not fit in memory.
+fn repeat(text: &str, count: usize) -> Result<String, RunError> {
+    let too_long = || RunError::TooLong {
+        text: text.to_owned(),
+        count,
+    };
+    let len = text.len().checked_mul(count).ok_or_else(too_long)?;
+    let mut repeated = String::new();
+    repeated.try_reserve_exact(len).map_err(|_| too_long())?;
+    while repeated.len() < len {
+        repeated.push_str(text);
+    }
+    Ok(repeated)
 }
 
 /// The placeholders of `template`, in order.
@@ -138,22 +155,26 @@ fn run(bytes: &[u8], start: usize, accept: impl Fn(u8, bool) -> bool) -> usize {
 }
 
 /// `message` with its placeholders filled from `row` and `params`.
+///
+/// # Errors
+/// Returns [`RunError::TooLong`] when a `times` filter repeats its text
+/// more often than memory holds.
 pub(crate) fn render(
     message: &str,
     row: &Row,
     tree: &Tree,
     params: &BTreeMap<String, Value>,
-) -> String {
+) -> Result<String, RunError> {
     let mut rendered = String::with_capacity(message.len());
     let mut last = 0;
     for placeholder in placeholders(message) {
         rendered.push_str(&message[last..placeholder.span.start]);
         let value = fill(&placeholder, row, tree, params);
-        rendered.push_str(&filter(value, &placeholder.filters));
+        rendered.push_str(&filter(value, &placeholder.filters)?);
         last = placeholder.span.end;
     }
     rendered.push_str(&message[last..]);
-    rendered
+    Ok(rendered)
 }
 
 fn fill(

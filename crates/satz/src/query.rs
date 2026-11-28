@@ -506,6 +506,15 @@ pub enum RunError {
     /// Joining the patterns produced more combinations than a run allows.
     #[error("the query produces too many combinations; anchor it to a narrower pattern")]
     TooMany,
+    /// A template's `times` filter repeats its text more often than memory
+    /// holds.
+    #[error("times:{text} repeats its text {count} times, too many to hold")]
+    TooLong {
+        /// The repeated text.
+        text: String,
+        /// The count.
+        count: usize,
+    },
 }
 
 /// A query read against a schema.
@@ -617,13 +626,16 @@ impl Query {
     /// The changes the query's edits make at the nodes `rows` capture in
     /// `tree`, their templates filled from each row and `params`. Nodes
     /// without a position in their file are left alone.
-    #[must_use]
+    ///
+    /// # Errors
+    /// Returns [`RunError::TooLong`] when a template's `times` filter
+    /// repeats its text more often than memory holds.
     pub fn changes(
         &self,
         rows: &[Row],
         tree: &Tree,
         params: &BTreeMap<String, Value>,
-    ) -> Vec<Change> {
+    ) -> Result<Vec<Change>, RunError> {
         let mut changes = Vec::new();
         for row in rows {
             for edit in &self.edits {
@@ -632,7 +644,7 @@ impl Query {
                 else {
                     continue;
                 };
-                let text = template::render(&edit.template, row, tree, params);
+                let text = template::render(&edit.template, row, tree, params)?;
                 for hit in hits {
                     let Hit::Node(id) = hit else { continue };
                     let Some(node) = tree.get(*id) else { continue };
@@ -649,7 +661,7 @@ impl Query {
                 }
             }
         }
-        changes
+        Ok(changes)
     }
 
     pub(crate) fn set_source(&mut self, source: &str) {
