@@ -38,9 +38,11 @@ pub trait InlineRule: Send + Sync + fmt::Debug {
     fn trigger(&self) -> char;
 
     /// The directive at the start of `src`, the rest of the inline text from
-    /// the trigger on, if the syntax claims it. It is also called to probe
-    /// text, so it must have no side effects.
-    fn claim(&self, src: &str) -> Option<Claim>;
+    /// the trigger on, if the syntax claims it. `before` is the character
+    /// before the trigger in the same inline text, `None` when the trigger
+    /// starts it. It is also called to probe text, so it must have no side
+    /// effects.
+    fn claim(&self, before: Option<char>, src: &str) -> Option<Claim>;
 }
 
 /// Text an [`InlineRule`] claims and the inline directive it stands for.

@@ -897,7 +897,7 @@ mod tests {
             '$'
         }
 
-        fn claim(&self, src: &str) -> Option<crate::markdown::Claim> {
+        fn claim(&self, _before: Option<char>, src: &str) -> Option<crate::markdown::Claim> {
             let name = src.strip_prefix('$')?;
             let len = name
                 .find(|c: char| !c.is_ascii_alphanumeric())
@@ -921,7 +921,7 @@ mod tests {
             ':'
         }
 
-        fn claim(&self, src: &str) -> Option<crate::markdown::Claim> {
+        fn claim(&self, _before: Option<char>, src: &str) -> Option<crate::markdown::Claim> {
             let len = src.find(char::is_whitespace).unwrap_or(src.len());
             (len > 1).then(|| crate::markdown::Claim {
                 len,
@@ -930,6 +930,73 @@ mod tests {
                 attrs: std::iter::empty().collect(),
             })
         }
+    }
+
+    #[derive(Debug)]
+    struct Unglued;
+
+    impl crate::markdown::InlineRule for Unglued {
+        fn trigger(&self) -> char {
+            ':'
+        }
+
+        fn claim(&self, before: Option<char>, src: &str) -> Option<crate::markdown::Claim> {
+            if before.is_some_and(char::is_alphanumeric) {
+                return None;
+            }
+            let rest = src.strip_prefix(':')?;
+            let len = rest
+                .find(|c: char| c != '$' && !c.is_ascii_alphanumeric())
+                .unwrap_or(rest.len());
+            (len > 0).then(|| crate::markdown::Claim {
+                len: 1 + len,
+                name: "sugar".into(),
+                label: rest[..len].into(),
+                attrs: [(
+                    "before".to_owned(),
+                    before.map_or_else(|| "none".to_owned(), String::from),
+                )]
+                .into_iter()
+                .collect(),
+            })
+        }
+    }
+
+    #[test]
+    fn inline_rules_see_the_character_before_their_trigger() {
+        let tree = Markdown::new()
+            .with_inline_rule(Arc::new(Unglued))
+            .parse("a.md", ":$1 ratio:$2 x :$3 (:$4) *a*:$5 `c`:$6\n");
+        assert_eq!(problems(&tree), Vec::<String>::new());
+        let claims: Vec<_> = find(&tree, "directive")
+            .into_iter()
+            .map(|n| {
+                let attrs = &n.node().attrs;
+                (attrs["label"].clone(), attrs["before"].clone())
+            })
+            .collect();
+        let want = [
+            ("$1", "none"),
+            ("$3", " "),
+            ("$4", "("),
+            ("$5", "*"),
+            ("$6", "`"),
+        ]
+        .map(|(label, before)| (label.to_owned(), before.to_owned()));
+        assert_eq!(claims, want);
+    }
+
+    #[test]
+    fn documents_of_an_instance_pass_rules_the_character_before() {
+        let markdown = Markdown::new().with_inline_rule(Arc::new(Unglued));
+        let parsed = markdown.document("a.md", "ratio:$5 (:$5)\n");
+        assert_eq!(parsed.problems, []);
+        let mut doc = parsed.value;
+        assert_eq!(doc.render(crate::markdown::RenderFormat::Xml), []);
+        assert_eq!(
+            doc.to_string(),
+            "ratio:$5 (<sugar before=\"(\">$5</sugar>)\n"
+        );
     }
 
     #[test]

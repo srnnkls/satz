@@ -125,3 +125,22 @@ fn constructed_documents_write_their_blocks() {
     doc.children.push(item("paragraph", "alpha"));
     assert_eq!(doc.to_string(), "alpha\n");
 }
+
+#[test]
+fn leaf_label_keeps_its_text_around_inline_directives() {
+    let doc = parse("doc.md", "::wrap[before :inner[] after]\n");
+    let leaf = find(&doc, "directive", 0);
+    assert_eq!(leaf.attrs.get("name").map(String::as_str), Some("wrap"));
+    assert_eq!(leaf.text, "before :inner[] after");
+    let children: Vec<_> = leaf
+        .children
+        .iter()
+        .map(|child| {
+            (
+                child.kind.as_str(),
+                child.attrs.get("name").map(String::as_str),
+            )
+        })
+        .collect();
+    assert_eq!(children, [("directive", Some("inner"))]);
+}
